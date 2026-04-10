@@ -1,0 +1,17 @@
+# Stock Analysis Batch Input File
+# Format: EXCHANGE:TICKER or plain TICKER (exchange auto-detected)
+# Lines starting with # are comments
+
+# Indian Markets — NSE
+NSE:RELIANCE
+NSE:TCS
+NSE:INFY
+NSE:HDFCBANK
+
+# Indian Markets — BSE (scrip codes)
+BSE:500325
+
+# US Markets — NASDAQ
+NASDAQ:AAPL
+NASDAQ:MSFT
+NASDAQ:GOOGL

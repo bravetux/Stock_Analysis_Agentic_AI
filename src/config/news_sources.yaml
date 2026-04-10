@@ -1,0 +1,311 @@
+# =============================================================================
+# Financial News Sources Configuration
+# Author : B.Vignesh Kumar aka Bravetux <ic19939@gmail.com>
+# Date   : 10 April 2026
+# =============================================================================
+#
+# Add or remove news sources here. The system uses these for:
+#   1. Location-specific news search (site:domain queries via Google News)
+#   2. Location-specific search query templates in the 100-query batch
+#
+# Fields:
+#   name     - Display name of the source
+#   domain   - Website domain (used in "site:domain" Google search)
+#   category - One of: general, analysis, data, regulatory, community
+#   enabled  - true/false to toggle without deleting
+#
+# To add a new source, copy an existing entry and modify it.
+# Sources are searched in the order listed here.
+# =============================================================================
+
+india:
+  # --- Major Financial Portals ---
+  - name: MoneyControl
+    domain: moneycontrol.com
+    category: general
+    enabled: true
+
+  - name: Economic Times Markets
+    domain: economictimes.indiatimes.com
+    category: general
+    enabled: true
+
+  - name: LiveMint
+    domain: livemint.com
+    category: general
+    enabled: true
+
+  - name: Business Standard
+    domain: business-standard.com
+    category: general
+    enabled: true
+
+  - name: NDTV Profit
+    domain: ndtvprofit.com
+    category: general
+    enabled: true
+
+  - name: CNBC TV18
+    domain: cnbctv18.com
+    category: general
+    enabled: true
+
+  - name: Financial Express
+    domain: financialexpress.com
+    category: general
+    enabled: true
+
+  - name: Business Today
+    domain: businesstoday.in
+    category: general
+    enabled: true
+
+  - name: Outlook Business
+    domain: outlookbusiness.com
+    category: general
+    enabled: true
+
+  - name: The Hindu BusinessLine
+    domain: thehindubusinessline.com
+    category: general
+    enabled: true
+
+  # --- Stock Analysis & Data Platforms ---
+  - name: Screener
+    domain: screener.in
+    category: analysis
+    enabled: true
+
+  - name: Trendlyne
+    domain: trendlyne.com
+    category: analysis
+    enabled: true
+
+  - name: Tickertape
+    domain: tickertape.in
+    category: analysis
+    enabled: true
+
+  - name: Tijori Finance
+    domain: tijorifinance.com
+    category: analysis
+    enabled: true
+
+  - name: StockEdge
+    domain: stockedge.com
+    category: analysis
+    enabled: true
+
+  - name: Chartink
+    domain: chartink.com
+    category: analysis
+    enabled: true
+
+  - name: MarketsMojo
+    domain: marketsmojo.com
+    category: analysis
+    enabled: true
+
+  - name: Investing.com India
+    domain: in.investing.com
+    category: analysis
+    enabled: true
+
+  # --- Exchange & Regulatory ---
+  - name: NSE India
+    domain: nseindia.com
+    category: regulatory
+    enabled: true
+
+  - name: BSE India
+    domain: bseindia.com
+    category: regulatory
+    enabled: true
+
+  - name: SEBI
+    domain: sebi.gov.in
+    category: regulatory
+    enabled: true
+
+  - name: RBI
+    domain: rbi.org.in
+    category: regulatory
+    enabled: false
+
+  # --- Community & Opinion ---
+  - name: ValuePickr
+    domain: valuepickr.com
+    category: community
+    enabled: true
+
+  - name: Varsity by Zerodha
+    domain: zerodha.com/varsity
+    category: community
+    enabled: false
+
+us:
+  # --- Major Financial News ---
+  - name: CNBC
+    domain: cnbc.com
+    category: general
+    enabled: true
+
+  - name: Bloomberg
+    domain: bloomberg.com
+    category: general
+    enabled: true
+
+  - name: Reuters
+    domain: reuters.com
+    category: general
+    enabled: true
+
+  - name: MarketWatch
+    domain: marketwatch.com
+    category: general
+    enabled: true
+
+  - name: "Barron's"
+    domain: barrons.com
+    category: general
+    enabled: true
+
+  - name: Wall Street Journal
+    domain: wsj.com
+    category: general
+    enabled: true
+
+  - name: Financial Times
+    domain: ft.com
+    category: general
+    enabled: true
+
+  - name: Forbes
+    domain: forbes.com
+    category: general
+    enabled: true
+
+  - name: Investor's Business Daily
+    domain: investors.com
+    category: general
+    enabled: true
+
+  - name: Business Insider
+    domain: businessinsider.com
+    category: general
+    enabled: true
+
+  - name: TheStreet
+    domain: thestreet.com
+    category: general
+    enabled: true
+
+  # --- Stock Analysis & Research ---
+  - name: Seeking Alpha
+    domain: seekingalpha.com
+    category: analysis
+    enabled: true
+
+  - name: Yahoo Finance
+    domain: finance.yahoo.com
+    category: analysis
+    enabled: true
+
+  - name: Motley Fool
+    domain: fool.com
+    category: analysis
+    enabled: true
+
+  - name: Zacks
+    domain: zacks.com
+    category: analysis
+    enabled: true
+
+  - name: TipRanks
+    domain: tipranks.com
+    category: analysis
+    enabled: true
+
+  - name: Simply Wall St
+    domain: simplywall.st
+    category: analysis
+    enabled: true
+
+  - name: Investing.com
+    domain: investing.com
+    category: analysis
+    enabled: true
+
+  - name: Benzinga
+    domain: benzinga.com
+    category: analysis
+    enabled: true
+
+  - name: GuruFocus
+    domain: gurufocus.com
+    category: analysis
+    enabled: true
+
+  - name: Finviz
+    domain: finviz.com
+    category: data
+    enabled: true
+
+  - name: Macrotrends
+    domain: macrotrends.net
+    category: data
+    enabled: true
+
+  # --- Regulatory & Filings ---
+  - name: SEC Filings
+    domain: sec.gov
+    category: regulatory
+    enabled: true
+
+  - name: EDGAR Online
+    domain: last10k.com
+    category: regulatory
+    enabled: false
+
+  # --- Community & Social ---
+  - name: StockTwits
+    domain: stocktwits.com
+    category: community
+    enabled: true
+
+  - name: Reddit Stocks
+    domain: reddit.com/r/stocks
+    category: community
+    enabled: false
+
+global:
+  # --- Wire Services & International ---
+  - name: Reuters Global
+    domain: reuters.com
+    category: general
+    enabled: true
+
+  - name: AFP
+    domain: afp.com
+    category: general
+    enabled: false
+
+  - name: Associated Press
+    domain: apnews.com
+    category: general
+    enabled: false
+
+  - name: Google Finance
+    domain: google.com/finance
+    category: data
+    enabled: true
+
+  - name: TradingView
+    domain: tradingview.com
+    category: analysis
+    enabled: true
+
+  - name: Nasdaq.com
+    domain: nasdaq.com
+    category: data
+    enabled: true

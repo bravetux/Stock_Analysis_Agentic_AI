@@ -1,0 +1,16 @@
+# =============================================================================
+# Author : B.Vignesh Kumar aka Bravetux <ic19939@gmail.com>
+# Date   : 10 April 2026
+# =============================================================================
+
+services:
+  stock-agent:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./.sessions:/app/.sessions
+      - ./stocks.txt:/app/stocks.txt:ro
+    restart: unless-stopped

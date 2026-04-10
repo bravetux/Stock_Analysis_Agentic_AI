@@ -1,0 +1,60 @@
+# =============================================================================
+# Author : B.Vignesh Kumar aka Bravetux <ic19939@gmail.com>
+# Date   : 10 April 2026
+# =============================================================================
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stock-analysis-agent"
+version = "0.1.0"
+description = "AG-UC-0999: Stock Analysis AI Agent"
+requires-python = ">=3.12"
+dependencies = [
+    # Strands Agent Framework
+    "strands-agents>=0.1",
+    "strands-agents-tools>=0.1",
+    # UI
+    "streamlit>=1.40",
+    # AWS
+    "boto3>=1.35",
+    # Config
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+    # Stock Data
+    "yfinance>=0.2.40",
+    "nsetools>=1.0.11",
+    "bsedata>=0.6.0",
+    # Technical Analysis
+    "pandas-ta>=0.3.14b",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    # News
+    "GoogleNews>=1.6.12",
+    "newspaper3k>=0.2.8",
+    # Web Scraping
+    "beautifulsoup4>=4.12",
+    "requests>=2.31",
+    "httpx>=0.27",
+    "lxml>=5.0",
+    # Utilities
+    "python-dateutil>=2.9",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-mock>=3.14",
+    "responses>=0.25",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
