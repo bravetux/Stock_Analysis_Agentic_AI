@@ -9,6 +9,9 @@ from src.agents.orchestrator import create_orchestrator
 from src.tools.batch_tools import read_stocks_file
 from src.config.exchanges import detect_exchange, strip_prefix, get_display_ticker
 from src.config.analysis_profiles import PROFILES, PROFILE_ORDER, DEFAULT_PROFILE
+from src.config.settings import settings
+from src.db.report_store import ReportStore
+from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -22,6 +25,13 @@ st.set_page_config(
 
 st.title("Stock Analysis Agent")
 st.caption("AG-UC-0999 | Powered by Strands Agents + AWS Bedrock")
+
+# --- Initialize Report Store ---
+@st.cache_resource
+def get_report_store():
+    return ReportStore(db_path=settings.db_path, cache_hours=settings.report_cache_hours)
+
+store = get_report_store()
 
 # --- Sidebar ---
 with st.sidebar:
@@ -67,8 +77,6 @@ with st.sidebar:
             "scraping_chartink": "Chartink screener scans",
             "batch": "Batch stock file processing",
         }
-        for group in PROFILE_ORDER[:PROFILE_ORDER.index(selected_profile) + 1]:
-            pass  # just for iteration reference
         for group_key in profile.tool_groups:
             if group_key in ("core", "batch"):
                 continue
@@ -76,7 +84,6 @@ with st.sidebar:
             st.markdown(f"- {desc}")
         st.markdown(f"- Up to **{max_queries}** news search queries")
 
-    # Show new capabilities summary
     new_capabilities = {
         "beginner": "Includes: Composite Score",
         "novice": "Includes: EMA Crossovers, Composite Score, Risk Metrics",
@@ -85,6 +92,10 @@ with st.sidebar:
     }
     st.info(new_capabilities.get(selected_profile, ""))
 
+    # Data source toggle
+    st.subheader("Data Source")
+    data_source = st.radio("Report Source", ["Fetch Fresh", "Use Cached"], index=0)
+
     analyze_btn = st.button("Analyze", type="primary", use_container_width=True)
 
 # --- Session State ---
@@ -92,107 +103,249 @@ if "orchestrator" not in st.session_state:
     st.session_state.orchestrator = None
 if "results" not in st.session_state:
     st.session_state.results = None
+if "batch_results" not in st.session_state:
+    st.session_state.batch_results = {}
 
-# --- Analysis ---
-if analyze_btn:
-    if analysis_mode == "Single Stock":
-        if not ticker_input:
-            st.error("Please enter a stock ticker.")
-            st.stop()
+# --- Top-level Tabs ---
+analyze_tab, history_tab = st.tabs(["Analyze", "History"])
 
-        ticker = strip_prefix(ticker_input.strip())
-        if exchange_override != "Auto-Detect":
-            exchange = exchange_override
-        else:
-            exchange = detect_exchange(ticker_input).value
-        display = get_display_ticker(ticker_input)
-
-        st.info(
-            f"Analyzing **{display}** on **{exchange}** | "
-            f"Level: **{profile.label}** | {max_queries} news queries"
-        )
-
-        with st.spinner(f"Running {profile.label.lower()}-level analysis for {display}..."):
-            try:
-                # Re-create orchestrator when profile changes
-                prev_profile = st.session_state.get("active_profile")
-                if st.session_state.orchestrator is None or prev_profile != selected_profile:
-                    st.session_state.orchestrator = create_orchestrator(profile=selected_profile)
-                    st.session_state.active_profile = selected_profile
-
-                agent = st.session_state.orchestrator
-                prompt = (
-                    f"Analyze the stock {display} on {exchange} exchange. "
-                    f"Use up to {max_queries} news search queries.\n\n"
-                    f"{profile.prompt_instructions}"
-                )
-                response = agent(prompt)
-                st.session_state.results = str(response)
-            except Exception as e:
-                st.error(f"Analysis failed: {e}")
-                logger.exception("Analysis failed for %s", display)
-
-    else:  # Batch mode
-        if not uploaded_file:
-            st.error("Please upload a stocks.txt file.")
-            st.stop()
-
-        # Save uploaded file temporarily
-        import tempfile
-        import os
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write(uploaded_file.getvalue().decode("utf-8"))
-            temp_path = f.name
-
-        try:
-            stocks = read_stocks_file.__wrapped__(temp_path)
-            if stocks and "error" in stocks[0]:
-                st.error(stocks[0]["error"])
+# === ANALYZE TAB ===
+with analyze_tab:
+    if analyze_btn:
+        if analysis_mode == "Single Stock":
+            if not ticker_input:
+                st.error("Please enter a stock ticker.")
                 st.stop()
 
-            st.info(
-                f"Batch analyzing **{len(stocks)} stocks** | "
-                f"Level: **{profile.label}** | {max_queries} queries each"
-            )
+            ticker = strip_prefix(ticker_input.strip())
+            if exchange_override != "Auto-Detect":
+                exchange = exchange_override
+            else:
+                exchange = detect_exchange(ticker_input).value
+            display = get_display_ticker(ticker_input)
 
-            with st.spinner(f"Running {profile.label.lower()}-level batch analysis..."):
+            # Check cached first if requested
+            if data_source == "Use Cached":
+                cached = store.get_latest_report(ticker, exchange)
+                if cached:
+                    st.success(f"Loaded cached report for **{display}** (from {cached['analyzed_at']})")
+                    st.session_state.results = cached["report_markdown"]
+                    st.session_state.batch_results = {}
+                else:
+                    st.warning(f"No cached report for **{display}**. Try 'Fetch Fresh'.")
+                    st.stop()
+            else:
+                st.info(
+                    f"Analyzing **{display}** on **{exchange}** | "
+                    f"Level: **{profile.label}** | {max_queries} news queries"
+                )
+                with st.spinner(f"Running {profile.label.lower()}-level analysis for {display}..."):
+                    try:
+                        prev_profile = st.session_state.get("active_profile")
+                        if st.session_state.orchestrator is None or prev_profile != selected_profile:
+                            st.session_state.orchestrator = create_orchestrator(profile=selected_profile)
+                            st.session_state.active_profile = selected_profile
+
+                        agent = st.session_state.orchestrator
+                        prompt = (
+                            f"Analyze the stock {display} on {exchange} exchange. "
+                            f"Use up to {max_queries} news search queries.\n\n"
+                            f"{profile.prompt_instructions}"
+                        )
+                        response = agent(prompt)
+                        report_md = str(response)
+                        st.session_state.results = report_md
+                        st.session_state.batch_results = {}
+
+                        # Save to DB and auto-save PDF
+                        pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
+                        pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+                        store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
+                        st.toast(f"PDF auto-saved: {pdf_path}")
+                    except Exception as e:
+                        st.error(f"Analysis failed: {e}")
+                        logger.exception("Analysis failed for %s", display)
+
+        else:  # Batch mode
+            if not uploaded_file:
+                st.error("Please upload a stocks.txt file.")
+                st.stop()
+
+            import tempfile
+            import os
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                f.write(uploaded_file.getvalue().decode("utf-8"))
+                temp_path = f.name
+
+            try:
+                stocks = read_stocks_file.__wrapped__(temp_path)
+                if stocks and "error" in stocks[0]:
+                    st.error(stocks[0]["error"])
+                    st.stop()
+
+                st.info(
+                    f"Batch analyzing **{len(stocks)} stocks** | "
+                    f"Level: **{profile.label}** | {max_queries} queries each"
+                )
+
+                batch_results = {}
+                progress_bar = st.progress(0, text="Starting batch analysis...")
+
                 prev_profile = st.session_state.get("active_profile")
                 if st.session_state.orchestrator is None or prev_profile != selected_profile:
                     st.session_state.orchestrator = create_orchestrator(profile=selected_profile)
                     st.session_state.active_profile = selected_profile
 
                 agent = st.session_state.orchestrator
-                stock_list = ", ".join(f"{s['ticker']} ({s['exchange']})" for s in stocks)
-                prompt = (
-                    f"Analyze these stocks from the batch file: {stock_list}. "
-                    f"Use up to {max_queries} news search queries per stock. "
-                    f"Provide individual analysis for each stock, then a summary comparison table.\n\n"
-                    f"{profile.prompt_instructions}"
-                )
-                response = agent(prompt)
-                st.session_state.results = str(response)
-        except Exception as e:
-            st.error(f"Batch analysis failed: {e}")
-            logger.exception("Batch analysis failed")
-        finally:
-            os.unlink(temp_path)
 
-# --- Display Results ---
-if st.session_state.results:
-    st.divider()
+                for i, stock in enumerate(stocks):
+                    ticker = stock["ticker"]
+                    exchange = stock["exchange"]
+                    display = f"{exchange}:{ticker}"
+                    progress_bar.progress(
+                        (i) / len(stocks),
+                        text=f"Analyzing {display} ({i+1}/{len(stocks)})...",
+                    )
 
-    tab1, tab2 = st.tabs(["Report", "Raw Output"])
+                    if data_source == "Use Cached":
+                        cached = store.get_latest_report(ticker, exchange)
+                        if cached:
+                            batch_results[display] = cached["report_markdown"]
+                            continue
+                        # Fall through to fresh analysis if no cache
 
-    with tab1:
-        st.markdown(st.session_state.results)
+                    try:
+                        prompt = (
+                            f"Analyze the stock {display} on {exchange} exchange. "
+                            f"Use up to {max_queries} news search queries.\n\n"
+                            f"{profile.prompt_instructions}"
+                        )
+                        response = agent(prompt)
+                        report_md = str(response)
+                        batch_results[display] = report_md
 
-    with tab2:
-        st.code(st.session_state.results, language="markdown")
+                        # Save to DB and auto-save PDF
+                        pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
+                        pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+                        store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
+                    except Exception as e:
+                        batch_results[display] = f"Analysis failed: {e}"
+                        logger.exception("Batch analysis failed for %s", display)
 
-    # Download button
-    st.download_button(
-        label="Download Report (Markdown)",
-        data=st.session_state.results,
-        file_name="stock_analysis_report.md",
-        mime="text/markdown",
-    )
+                progress_bar.progress(1.0, text="Batch analysis complete!")
+                st.session_state.batch_results = batch_results
+                st.session_state.results = None
+            except Exception as e:
+                st.error(f"Batch analysis failed: {e}")
+                logger.exception("Batch analysis failed")
+            finally:
+                os.unlink(temp_path)
+
+    # --- Display Single Stock Results ---
+    if st.session_state.results:
+        st.divider()
+        report_md = st.session_state.results
+
+        tab1, tab2 = st.tabs(["Report", "Raw Output"])
+        with tab1:
+            st.markdown(report_md)
+        with tab2:
+            st.code(report_md, language="markdown")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="Download Report (Markdown)",
+                data=report_md,
+                file_name="stock_analysis_report.md",
+                mime="text/markdown",
+            )
+        with col2:
+            pdf_bytes = markdown_to_pdf(report_md, "STOCK", "EX", selected_profile)
+            st.download_button(
+                label="Download Report (PDF)",
+                data=pdf_bytes,
+                file_name="stock_analysis_report.pdf",
+                mime="application/pdf",
+            )
+
+    # --- Display Batch Results ---
+    if st.session_state.batch_results:
+        st.divider()
+        st.subheader(f"Batch Results — {len(st.session_state.batch_results)} stocks")
+
+        for display_ticker, report_md in st.session_state.batch_results.items():
+            with st.expander(f"📊 {display_ticker}", expanded=False):
+                st.markdown(report_md)
+
+                col1, col2 = st.columns(2)
+                safe_name = display_ticker.replace(":", "_")
+                with col1:
+                    st.download_button(
+                        label="Download MD",
+                        data=report_md,
+                        file_name=f"{safe_name}_report.md",
+                        mime="text/markdown",
+                        key=f"md_{display_ticker}",
+                    )
+                with col2:
+                    parts = display_ticker.split(":")
+                    ex = parts[0] if len(parts) == 2 else "EX"
+                    tk = parts[1] if len(parts) == 2 else parts[0]
+                    pdf_bytes = markdown_to_pdf(report_md, tk, ex, selected_profile)
+                    st.download_button(
+                        label="Download PDF",
+                        data=pdf_bytes,
+                        file_name=f"{safe_name}_report.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{display_ticker}",
+                    )
+
+# === HISTORY TAB ===
+with history_tab:
+    st.subheader("Report History")
+    search_query = st.text_input("Search ticker", placeholder="e.g., RELIANCE, AAPL")
+
+    if search_query:
+        tickers = store.search_tickers(search_query)
+        if not tickers:
+            st.info("No reports found matching that ticker.")
+        else:
+            selected_ticker = st.selectbox("Select ticker", tickers)
+            if selected_ticker:
+                history = store.get_report_history(selected_ticker)
+                if not history:
+                    st.info("No reports found.")
+                else:
+                    st.caption(f"Found {len(history)} report(s) for {selected_ticker}")
+
+                    for report in history:
+                        label = f"{report['exchange']}:{report['ticker']} | {report['profile']} | {report['analyzed_at']}"
+                        with st.expander(label, expanded=False):
+                            st.markdown(report["report_markdown"])
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.download_button(
+                                    label="Download MD",
+                                    data=report["report_markdown"],
+                                    file_name=f"{report['exchange']}_{report['ticker']}_{report['id']}.md",
+                                    mime="text/markdown",
+                                    key=f"hist_md_{report['id']}",
+                                )
+                            with col2:
+                                pdf_bytes = markdown_to_pdf(
+                                    report["report_markdown"],
+                                    report["ticker"],
+                                    report["exchange"],
+                                    report["profile"],
+                                )
+                                st.download_button(
+                                    label="Download PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"{report['exchange']}_{report['ticker']}_{report['id']}.pdf",
+                                    mime="application/pdf",
+                                    key=f"hist_pdf_{report['id']}",
+                                )
+    else:
+        st.caption("Enter a ticker symbol above to browse past reports.")
