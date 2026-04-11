@@ -13,6 +13,8 @@ from src.tools.technical_analysis_tools import (
     calculate_support_resistance,
     estimate_next_high_low,
     get_technical_summary,
+    calculate_ema_crossovers,
+    detect_golden_death_cross,
 )
 
 
@@ -118,3 +120,55 @@ class TestGetTechnicalSummary:
         result = get_technical_summary.__wrapped__("RELIANCE", "NSE")
         assert "current_price" in result
         assert "rsi_14" in result or "error" not in result
+
+
+class TestCalculateEMACrossovers:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_ema_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ema_crossovers.__wrapped__("RELIANCE", "NSE")
+        assert "ema_9" in result
+        assert "ema_21" in result
+        assert "ema_50" in result
+        assert "alignment" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_alignment_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ema_crossovers.__wrapped__("AAPL", "NASDAQ")
+        assert result["alignment"] in ("BULLISH", "BEARISH", "MIXED")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_crossover_signals(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ema_crossovers.__wrapped__("TCS", "NSE")
+        assert "short_term_signal" in result
+        assert "medium_term_signal" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_ema_crossovers.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestDetectGoldenDeathCross:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_cross_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=300)
+        result = detect_golden_death_cross.__wrapped__("RELIANCE", "NSE")
+        assert "current_state" in result
+        assert "sma_50" in result
+        assert "sma_200" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_state_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=300)
+        result = detect_golden_death_cross.__wrapped__("AAPL", "NASDAQ")
+        assert result["current_state"] in ("GOLDEN_CROSS", "DEATH_CROSS", "NEITHER")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = detect_golden_death_cross.__wrapped__("INVALID", "NSE")
+        assert "error" in result

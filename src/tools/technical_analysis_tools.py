@@ -305,3 +305,117 @@ def get_technical_summary(ticker: str, exchange: str) -> dict:
     result["volume_signal"] = "HIGH" if last_vol > 1.5 * avg_vol else "LOW" if last_vol < 0.5 * avg_vol else "NORMAL"
 
     return result
+
+
+@tool
+def calculate_ema_crossovers(ticker: str, exchange: str) -> dict:
+    """Calculate EMA (9, 21, 50) crossover signals for short and medium-term momentum."""
+    df = _fetch_price_data(ticker, exchange, period="1y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    df["EMA_9"] = ta.ema(df["Close"], length=9)
+    df["EMA_21"] = ta.ema(df["Close"], length=21)
+    df["EMA_50"] = ta.ema(df["Close"], length=50)
+    df = df.dropna(subset=["EMA_9", "EMA_21", "EMA_50"])
+
+    if df.empty:
+        return {"error": "Insufficient data for EMA calculation"}
+
+    ema_9 = round(float(df["EMA_9"].iloc[-1]), 2)
+    ema_21 = round(float(df["EMA_21"].iloc[-1]), 2)
+    ema_50 = round(float(df["EMA_50"].iloc[-1]), 2)
+
+    # Alignment
+    if ema_9 > ema_21 > ema_50:
+        alignment = "BULLISH"
+    elif ema_9 < ema_21 < ema_50:
+        alignment = "BEARISH"
+    else:
+        alignment = "MIXED"
+
+    # Short-term crossover (9/21)
+    df["short_above"] = df["EMA_9"] > df["EMA_21"]
+    df["short_cross"] = df["short_above"].ne(df["short_above"].shift())
+    short_crosses = df[df["short_cross"]].tail(5)
+    short_term_signal = "BULLISH" if ema_9 > ema_21 else "BEARISH"
+
+    # Medium-term crossover (21/50)
+    df["med_above"] = df["EMA_21"] > df["EMA_50"]
+    df["med_cross"] = df["med_above"].ne(df["med_above"].shift())
+    med_crosses = df[df["med_cross"]].tail(5)
+    medium_term_signal = "BULLISH" if ema_21 > ema_50 else "BEARISH"
+
+    short_crossovers = [
+        {"date": d.strftime("%Y-%m-%d"), "type": "BULLISH" if r["short_above"] else "BEARISH"}
+        for d, r in short_crosses.iterrows()
+    ]
+    medium_crossovers = [
+        {"date": d.strftime("%Y-%m-%d"), "type": "BULLISH" if r["med_above"] else "BEARISH"}
+        for d, r in med_crosses.iterrows()
+    ]
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "ema_9": ema_9,
+        "ema_21": ema_21,
+        "ema_50": ema_50,
+        "alignment": alignment,
+        "short_term_signal": short_term_signal,
+        "medium_term_signal": medium_term_signal,
+        "short_term_crossovers": short_crossovers,
+        "medium_term_crossovers": medium_crossovers,
+    }
+
+
+@tool
+def detect_golden_death_cross(ticker: str, exchange: str) -> dict:
+    """Detect Golden Cross (SMA50 crosses above SMA200) or Death Cross (below).
+    These are major institutional trend reversal signals."""
+    df = _fetch_price_data(ticker, exchange, period="2y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    df["SMA_50"] = ta.sma(df["Close"], length=50)
+    df["SMA_200"] = ta.sma(df["Close"], length=200)
+    df = df.dropna(subset=["SMA_50", "SMA_200"])
+
+    if df.empty:
+        return {"error": "Insufficient data for Golden/Death Cross detection"}
+
+    sma_50 = round(float(df["SMA_50"].iloc[-1]), 2)
+    sma_200 = round(float(df["SMA_200"].iloc[-1]), 2)
+    distance_pct = round(((sma_50 - sma_200) / sma_200) * 100, 2)
+
+    # Detect crossovers
+    df["fifty_above"] = df["SMA_50"] > df["SMA_200"]
+    df["cross"] = df["fifty_above"].ne(df["fifty_above"].shift())
+    crosses = df[df["cross"]].tail(5)
+
+    if sma_50 > sma_200:
+        current_state = "GOLDEN_CROSS"
+    elif sma_50 < sma_200:
+        current_state = "DEATH_CROSS"
+    else:
+        current_state = "NEITHER"
+
+    last_crossover = None
+    if not crosses.empty:
+        last_row = crosses.iloc[-1]
+        last_crossover = {
+            "date": crosses.index[-1].strftime("%Y-%m-%d"),
+            "type": "GOLDEN_CROSS" if last_row["fifty_above"] else "DEATH_CROSS",
+        }
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "sma_50": sma_50,
+        "sma_200": sma_200,
+        "distance_percent": distance_pct,
+        "current_state": current_state,
+        "last_crossover": last_crossover,
+        "signal": "BULLISH" if current_state == "GOLDEN_CROSS" else
+                  "BEARISH" if current_state == "DEATH_CROSS" else "NEUTRAL",
+    }
