@@ -4,12 +4,14 @@
 # =============================================================================
 
 import pytest
+import pandas as pd
 from unittest.mock import patch, MagicMock
 from src.tools.news_tools import (
     search_google_news,
     search_news_batch,
     extract_article_content,
     search_location_news,
+    get_google_trends,
 )
 
 
@@ -78,3 +80,31 @@ class TestSearchLocationNews:
         result = search_location_news.__wrapped__("AAPL", "NASDAQ")
         assert result["location"] == "United States"
         assert result["sources_searched"] == 8  # 8 US sources
+
+
+class TestGetGoogleTrends:
+    @patch("src.tools.news_tools.TrendReq")
+    def test_returns_trends_data(self, mock_trend_class):
+        mock_pytrends = MagicMock()
+        mock_pytrends.interest_over_time.return_value = pd.DataFrame({
+            "Reliance Industries": [50, 60, 70, 80, 65, 75],
+            "isPartial": [False] * 6,
+        }, index=pd.date_range("2026-01-01", periods=6, freq="W"))
+        mock_pytrends.related_queries.return_value = {
+            "Reliance Industries": {"rising": pd.DataFrame({"query": ["reliance jio", "reliance share"], "value": [100, 80]})}
+        }
+        mock_trend_class.return_value = mock_pytrends
+
+        result = get_google_trends.__wrapped__("RELIANCE", "Reliance Industries")
+        assert "current_interest" in result
+        assert "trend" in result
+        assert result["trend"] in ("RISING", "FALLING", "STABLE")
+
+    @patch("src.tools.news_tools.TrendReq")
+    def test_handles_no_data(self, mock_trend_class):
+        mock_pytrends = MagicMock()
+        mock_pytrends.interest_over_time.return_value = pd.DataFrame()
+        mock_trend_class.return_value = mock_pytrends
+
+        result = get_google_trends.__wrapped__("OBSCURE", "Obscure Corp")
+        assert "message" in result

@@ -5,6 +5,8 @@
 
 import logging
 import time
+import pandas as pd
+from pytrends.request import TrendReq
 from strands import tool
 from src.config.exchanges import ExchangeEnum, get_location
 from src.config.search_queries import generate_search_queries
@@ -162,6 +164,55 @@ def search_location_news(ticker: str, exchange: str) -> dict:
         "total_articles": len(all_results),
         "articles": all_results,
     }
+
+
+@tool
+def get_google_trends(ticker: str, company_name: str) -> dict:
+    """Get Google Trends search interest for a stock/company over 90 days.
+    Returns trend direction, current vs average interest, and rising related queries."""
+    try:
+        pytrends = TrendReq(hl="en-US", tz=330)
+        kw = company_name if company_name else ticker
+        pytrends.build_payload([kw], timeframe=settings.trends_timeframe)
+
+        interest_df = pytrends.interest_over_time()
+        if interest_df.empty:
+            return {"ticker": ticker, "message": "No Google Trends data available"}
+
+        values = interest_df[kw].tolist()
+        current = values[-1]
+        avg = sum(values) / len(values)
+
+        third = max(1, len(values) // 3)
+        first_avg = sum(values[:third]) / third
+        last_avg = sum(values[-third:]) / third
+
+        if last_avg > first_avg * 1.15:
+            trend = "RISING"
+        elif last_avg < first_avg * 0.85:
+            trend = "FALLING"
+        else:
+            trend = "STABLE"
+
+        related = pytrends.related_queries()
+        rising_queries = []
+        if kw in related and related[kw].get("rising") is not None:
+            rising_df = related[kw]["rising"]
+            if isinstance(rising_df, pd.DataFrame) and not rising_df.empty:
+                rising_queries = rising_df.head(5)["query"].tolist()
+
+        return {
+            "ticker": ticker,
+            "keyword": kw,
+            "current_interest": int(current),
+            "average_interest": round(avg, 1),
+            "current_vs_average": round((current / avg - 1) * 100, 1) if avg > 0 else 0,
+            "trend": trend,
+            "rising_queries": rising_queries,
+        }
+    except Exception as e:
+        logger.warning("Google Trends failed for %s: %s", ticker, e)
+        return {"ticker": ticker, "message": f"Google Trends unavailable: {e}"}
 
 
 def _get_query_category(index: int) -> str:
