@@ -42,6 +42,15 @@ TOOL_GROUPS: dict[str, list[str]] = {
     "scraping_advanced": ["scrape_yahoo_finance_page", "scrape_moneycontrol"],
     "scraping_chartink": ["scrape_chartink_screener", "get_chartink_stock_data"],
     "batch": ["read_stocks_file"],
+    "technical_ema": ["calculate_ema_crossovers", "detect_golden_death_cross"],
+    "technical_fibonacci": ["calculate_fibonacci_levels", "calculate_vwap", "calculate_obv"],
+    "technical_advanced": ["calculate_ichimoku", "calculate_williams_r", "calculate_adx_directional"],
+    "technical_analysis": ["calculate_trend_strength", "detect_chart_patterns", "calculate_risk_metrics", "calculate_relative_strength"],
+    "market_options": ["get_options_chain", "get_sector_performance"],
+    "fundamentals_advanced": ["get_insider_transactions", "get_mutual_fund_holdings", "get_earnings_calendar"],
+    "news_trends": ["get_google_trends"],
+    "scraping_india_advanced": ["scrape_trendlyne", "scrape_tickertape"],
+    "scoring": ["calculate_composite_score"],
 }
 
 PROFILES: dict[str, AnalysisProfile] = {
@@ -54,6 +63,7 @@ PROFILES: dict[str, AnalysisProfile] = {
         tool_groups=(
             "core", "market_data", "technical_basic",
             "news_basic", "scraping_basic", "batch",
+            "scoring",
         ),
         news_queries=10,
         prompt_instructions=(
@@ -63,6 +73,7 @@ PROFILES: dict[str, AnalysisProfile] = {
             "- 200-Day Moving Average: is the stock above or below? Explain what this means simply\n"
             "- Top 5 recent news headlines with a one-line sentiment summary\n"
             "- A simple verdict: is the stock trending UP, DOWN, or SIDEWAYS?\n"
+            "- Composite Score: show the overall score (0-100) and signal (BUY/HOLD/SELL)\n"
             "Do NOT include MACD, RSI, support/resistance, fundamentals, or advanced metrics."
         ),
     ),
@@ -74,19 +85,24 @@ PROFILES: dict[str, AnalysisProfile] = {
         ),
         tool_groups=(
             "core", "market_data", "technical_basic", "technical_momentum",
+            "technical_ema",
             "news_basic", "news_batch", "fundamentals",
             "scraping_basic", "batch",
+            "scoring",
         ),
         news_queries=25,
         prompt_instructions=(
             "Provide a NOVICE-LEVEL analysis with clear explanations.\n"
             "Include:\n"
+            "- Score Dashboard: composite score with sub-scores\n"
             "- Market Data: current price, volume, 52-week range, market cap\n"
             "- 200DMA Analysis: trend direction, recent breakpoints, what they signal\n"
             "- MACD Signals: current crossover status, momentum direction\n"
+            "- EMA Crossovers: 9/21/50 alignment and signals\n"
             "- News Sentiment: overall sentiment (positive/negative/neutral %), top 5 headlines\n"
-            "- Key Fundamentals: PE ratio, ROE, debt-to-equity (with brief explanations of each)\n"
-            "- Overall Assessment: BUY / HOLD / SELL with simple reasoning\n"
+            "- Key Fundamentals: PE ratio, ROE, debt-to-equity (with brief explanations)\n"
+            "- Risk Assessment: basic risk metrics\n"
+            "- Overall Assessment: composite score signal with simple reasoning\n"
             "Briefly explain technical terms when first used."
         ),
     ),
@@ -99,26 +115,29 @@ PROFILES: dict[str, AnalysisProfile] = {
         tool_groups=(
             "core", "market_data",
             "technical_basic", "technical_momentum", "technical_levels",
+            "technical_ema", "technical_fibonacci",
             "news_basic", "news_batch", "news_location",
-            "fundamentals",
+            "fundamentals", "fundamentals_advanced",
             "scraping_basic", "scraping_advanced", "scraping_chartink",
-            "batch",
+            "scraping_india_advanced",
+            "batch", "scoring",
         ),
         news_queries=50,
         prompt_instructions=(
             "Provide an INTERMEDIATE-LEVEL analysis with detailed data.\n"
             "Include:\n"
-            "- Market Data: full quote with price, volume, market cap, 52-week context\n"
+            "- Score Dashboard: composite score, sub-scores, confidence level\n"
+            "- Key Levels: support/resistance + Fibonacci levels consolidated\n"
+            "- Bull/Bear Scenarios: price targets with reasoning\n"
             "- Technical Analysis:\n"
-            "  - 200DMA: breakpoints, trend direction, distance from DMA\n"
-            "  - MACD: signal line crossovers, histogram trend, recent crossover dates\n"
-            "  - Support & Resistance: pivot levels, key price zones\n"
-            "  - Price Estimates: short-term (ATR-based) and medium-term (Bollinger) targets\n"
+            "  - 200DMA, MACD, EMA crossovers, Golden/Death Cross\n"
+            "  - Fibonacci levels, VWAP, support/resistance\n"
+            "  - Price Estimates: ATR-based and Bollinger targets\n"
             "- News Intelligence: sentiment breakdown, top 10 headlines, risk/catalyst alerts\n"
-            "- Fundamental Analysis: PE, PB, ROE, ROCE, growth rates, debt ratios, "
-            "shareholding pattern\n"
-            "- Web Data: cross-reference from Google Finance, MoneyControl, Chartink scans\n"
-            "- Overall Assessment: STRONG BUY / BUY / HOLD / SELL / STRONG SELL with reasoning"
+            "- Fundamental Analysis: PE, PB, ROE, ROCE, growth rates, debt ratios,\n"
+            "  insider activity, mutual fund holdings, earnings calendar\n"
+            "- Web Data: Google Finance, MoneyControl, Chartink, Trendlyne, Tickertape\n"
+            "- Overall Assessment: composite score signal with multi-factor reasoning"
         ),
     ),
     "expert": AnalysisProfile(
@@ -133,27 +152,34 @@ PROFILES: dict[str, AnalysisProfile] = {
         prompt_instructions=(
             "Provide a FULL EXPERT-LEVEL comprehensive analysis. No simplification needed.\n"
             "Include ALL available data:\n"
-            "- Market Data: full quote, historical context, market index comparison\n"
+            "- Score Dashboard: composite score, all sub-scores with components, confidence, risk level\n"
+            "- Key Levels Table: support/resistance + Fibonacci + VWAP in one table\n"
+            "- Bull/Bear Scenarios: price targets with catalysts and risks\n"
             "- Technical Analysis (ALL indicators):\n"
             "  - 200DMA with breakpoint history and trend analysis\n"
             "  - MACD with full crossover history and histogram analysis\n"
-            "  - Support & Resistance levels (pivot points + local extremes)\n"
-            "  - Price Estimates (ATR short-term + Bollinger medium-term)\n"
-            "  - Technical Dashboard: RSI, Stochastic K/D, ADX trend strength, volume analysis\n"
+            "  - EMA crossovers (9/21/50) and alignment status\n"
+            "  - Golden/Death Cross detection\n"
+            "  - Fibonacci retracement levels\n"
+            "  - VWAP analysis, OBV accumulation/distribution\n"
+            "  - Ichimoku Cloud, Williams %%R\n"
+            "  - ADX with directional movement (+DI/-DI)\n"
+            "  - Trend strength composite, chart pattern detection\n"
+            "  - Support & Resistance levels, Price Estimates\n"
+            "  - Technical Dashboard: RSI, Stochastic, volume analysis\n"
+            "- Risk Assessment: Sharpe ratio, max drawdown, beta, VaR, volatility\n"
+            "- Relative Strength vs market and sector\n"
             "- News Intelligence (use all 100 query types):\n"
-            "  - Full sentiment analysis with source breakdown\n"
-            "  - Top headlines across all 10 categories\n"
-            "  - Location-specific news sources\n"
-            "  - Risk alerts, catalyst alerts, insider activity mentions\n"
+            "  - Sentiment analysis, Google Trends momentum\n"
+            "  - Top headlines across all categories\n"
+            "  - Location-specific news, risk/catalyst alerts\n"
             "- Fundamental Analysis (full depth):\n"
-            "  - Valuation: PE, PB, EV/EBITDA\n"
-            "  - Profitability: ROE, ROCE, margins\n"
-            "  - Growth: revenue and profit growth trends\n"
-            "  - Balance Sheet: debt-to-equity, current ratio\n"
-            "  - Shareholding: promoter, FII, DII changes\n"
-            "  - Quarterly results trends\n"
-            "- Web Scraping (all sources): Google Finance, Yahoo Finance, MoneyControl, "
-            "Chartink screener scans (200DMA breakout, MACD crossover, volume breakout)\n"
+            "  - Valuation, profitability, growth, balance sheet\n"
+            "  - Shareholding, quarterly results, insider transactions\n"
+            "  - Mutual fund holdings, earnings calendar with surprise history\n"
+            "- Options Data: put/call ratio, max pain, implied volatility\n"
+            "- Peer/Sector Comparison: relative performance\n"
+            "- Web Scraping: all sources including Trendlyne, Tickertape\n"
             "- Overall Assessment: STRONG BUY / BUY / HOLD / SELL / STRONG SELL\n"
             "  - Multi-factor convergence analysis\n"
             "  - Key risks and catalysts\n"
