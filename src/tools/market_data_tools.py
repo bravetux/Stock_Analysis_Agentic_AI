@@ -4,6 +4,7 @@
 # =============================================================================
 
 import logging
+import yfinance as yf
 from strands import tool
 from src.config.exchanges import (
     ExchangeEnum, detect_exchange, normalize_ticker, strip_prefix, get_display_ticker,
@@ -81,7 +82,6 @@ def get_stock_quote(ticker: str, exchange: str) -> dict:
             logger.warning("bsedata failed for %s: %s, falling back to yfinance", display, e)
 
     # Fallback / NASDAQ: use yfinance
-    import yfinance as yf
     yf_ticker = normalize_ticker(ticker, ex)
     stock = yf.Ticker(yf_ticker)
     info = stock.info
@@ -105,8 +105,6 @@ def get_stock_quote(ticker: str, exchange: str) -> dict:
 @tool
 def get_historical_data(ticker: str, exchange: str, days: int = 365) -> dict:
     """Fetch historical OHLCV data for a stock. Returns date-indexed price data."""
-    import yfinance as yf
-
     ex = ExchangeEnum(exchange.upper())
     yf_ticker = normalize_ticker(ticker, ex)
 
@@ -148,8 +146,6 @@ def get_historical_data(ticker: str, exchange: str, days: int = 365) -> dict:
 @tool
 def get_market_overview(exchange: str) -> dict:
     """Get market index overview for an exchange (NIFTY50, SENSEX, or NASDAQ Composite)."""
-    import yfinance as yf
-
     ex = ExchangeEnum(exchange.upper())
 
     index_map = {
@@ -172,4 +168,125 @@ def get_market_overview(exchange: str) -> dict:
         "day_low": info.get("regularMarketDayLow"),
         "52w_high": info.get("fiftyTwoWeekHigh"),
         "52w_low": info.get("fiftyTwoWeekLow"),
+    }
+
+
+SECTOR_ETFS = {
+    "Technology": "XLK",
+    "Financial Services": "XLF",
+    "Healthcare": "XLV",
+    "Consumer Cyclical": "XLY",
+    "Consumer Defensive": "XLP",
+    "Energy": "XLE",
+    "Industrials": "XLI",
+    "Materials": "XLB",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+    "Communication Services": "XLC",
+}
+
+
+@tool
+def get_options_chain(ticker: str, exchange: str) -> dict:
+    """Get options chain summary: put/call ratio, max pain, implied volatility.
+    Not all stocks have listed options — returns graceful message if unavailable."""
+    ex = ExchangeEnum(exchange.upper())
+    yf_ticker = normalize_ticker(ticker, ex)
+    stock = yf.Ticker(yf_ticker)
+
+    if not stock.options:
+        return {"ticker": get_display_ticker(ticker), "message": "No options data available for this stock"}
+
+    nearest_expiry = stock.options[0]
+    chain = stock.option_chain(nearest_expiry)
+
+    calls = chain.calls
+    puts = chain.puts
+    total_call_oi = int(calls["openInterest"].sum()) if "openInterest" in calls.columns else 0
+    total_put_oi = int(puts["openInterest"].sum()) if "openInterest" in puts.columns else 0
+    pcr = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else 0
+
+    # Max pain: strike price where option holders lose the most
+    all_strikes = sorted(set(calls["strike"].tolist() + puts["strike"].tolist()))
+    max_pain_strike = None
+    min_total_value = float("inf")
+    for strike in all_strikes:
+        call_itm = calls[calls["strike"] < strike]
+        call_loss = (call_itm["openInterest"] * (strike - call_itm["strike"])).sum() if not call_itm.empty else 0
+        put_itm = puts[puts["strike"] > strike]
+        put_loss = (put_itm["openInterest"] * (put_itm["strike"] - strike)).sum() if not put_itm.empty else 0
+        total = call_loss + put_loss
+        if total < min_total_value:
+            min_total_value = total
+            max_pain_strike = strike
+
+    # Average implied volatility
+    avg_iv_calls = round(float(calls["impliedVolatility"].mean()) * 100, 2) if "impliedVolatility" in calls.columns else None
+    avg_iv_puts = round(float(puts["impliedVolatility"].mean()) * 100, 2) if "impliedVolatility" in puts.columns else None
+    avg_iv = round((avg_iv_calls + avg_iv_puts) / 2, 2) if avg_iv_calls and avg_iv_puts else None
+
+    # Top OI strikes
+    top_call_oi = calls.nlargest(5, "openInterest")[["strike", "openInterest"]].to_dict("records") if "openInterest" in calls.columns else []
+    top_put_oi = puts.nlargest(5, "openInterest")[["strike", "openInterest"]].to_dict("records") if "openInterest" in puts.columns else []
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "expiry": nearest_expiry,
+        "put_call_ratio": pcr,
+        "max_pain": max_pain_strike,
+        "avg_implied_volatility": avg_iv,
+        "total_call_oi": total_call_oi,
+        "total_put_oi": total_put_oi,
+        "top_call_strikes": top_call_oi,
+        "top_put_strikes": top_put_oi,
+        "signal": "BEARISH" if pcr > 1.5 else "BULLISH" if pcr < 0.7 else "NEUTRAL",
+    }
+
+
+@tool
+def get_sector_performance(ticker: str, exchange: str) -> dict:
+    """Compare stock performance vs its sector ETF for relative strength analysis."""
+    ex = ExchangeEnum(exchange.upper())
+    yf_ticker = normalize_ticker(ticker, ex)
+    stock = yf.Ticker(yf_ticker)
+    sector = stock.info.get("sector", "")
+
+    if not sector:
+        return {"ticker": get_display_ticker(ticker), "error": "Sector information not available"}
+
+    sector_etf = SECTOR_ETFS.get(sector)
+    if not sector_etf:
+        return {"ticker": get_display_ticker(ticker), "sector": sector, "error": f"No ETF mapping for sector '{sector}'"}
+
+    stock_df = yf.download(yf_ticker, period="1y", progress=False)
+    etf_df = yf.download(sector_etf, period="1y", progress=False)
+
+    for df_item in [stock_df, etf_df]:
+        if hasattr(df_item.columns, 'levels') and len(df_item.columns.levels) > 1:
+            df_item.columns = df_item.columns.get_level_values(0)
+
+    if stock_df.empty or etf_df.empty:
+        return {"ticker": get_display_ticker(ticker), "error": "Insufficient data for comparison"}
+
+    performance = {}
+    for label, days in [("1w", 5), ("1m", 21), ("3m", 63), ("6m", 126), ("1y", 252)]:
+        if len(stock_df) > days and len(etf_df) > days:
+            stock_ret = (float(stock_df["Close"].iloc[-1]) / float(stock_df["Close"].iloc[-days]) - 1) * 100
+            etf_ret = (float(etf_df["Close"].iloc[-1]) / float(etf_df["Close"].iloc[-days]) - 1) * 100
+            performance[label] = {
+                "stock": round(stock_ret, 2),
+                "sector": round(etf_ret, 2),
+                "excess": round(stock_ret - etf_ret, 2),
+            }
+
+    excess_3m = performance.get("3m", {}).get("excess", 0)
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "sector": sector,
+        "sector_etf": sector_etf,
+        "performance": performance,
+        "relative_strength": "OUTPERFORMING" if excess_3m > 5 else "UNDERPERFORMING" if excess_3m < -5 else "IN_LINE",
     }

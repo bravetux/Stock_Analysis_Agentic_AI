@@ -4,11 +4,15 @@
 # =============================================================================
 
 import pytest
+import pandas as pd
+import numpy as np
 from unittest.mock import patch, MagicMock
 from src.tools.market_data_tools import (
     detect_exchange_for_ticker,
     get_stock_quote,
     get_historical_data,
+    get_options_chain,
+    get_sector_performance,
 )
 
 
@@ -96,4 +100,66 @@ class TestGetHistoricalData:
         mock_yf.download.return_value = pd.DataFrame()
 
         result = get_historical_data.__wrapped__("INVALID", "NSE", 30)
+        assert "error" in result
+
+
+def _make_stock_df(days: int = 200, base_price: float = 100.0):
+    dates = pd.date_range(end=pd.Timestamp.now(), periods=days, freq="B")
+    np.random.seed(42)
+    prices = base_price + np.cumsum(np.random.randn(days) * 2)
+    return pd.DataFrame({
+        "Open": prices - 1, "High": prices + 2, "Low": prices - 2,
+        "Close": prices, "Volume": np.random.randint(100000, 1000000, days),
+    }, index=dates)
+
+
+class TestGetOptionsChain:
+    @patch("src.tools.market_data_tools.yf")
+    def test_returns_options_data(self, mock_yf):
+        mock_ticker = MagicMock()
+        mock_ticker.options = ("2026-05-16",)
+        mock_chain = MagicMock()
+        mock_chain.calls = pd.DataFrame({
+            "strike": [100, 105, 110],
+            "openInterest": [500, 1000, 300],
+            "impliedVolatility": [0.25, 0.22, 0.28],
+        })
+        mock_chain.puts = pd.DataFrame({
+            "strike": [95, 100, 105],
+            "openInterest": [400, 800, 200],
+            "impliedVolatility": [0.30, 0.27, 0.24],
+        })
+        mock_ticker.option_chain.return_value = mock_chain
+        mock_yf.Ticker.return_value = mock_ticker
+        result = get_options_chain.__wrapped__("AAPL", "NASDAQ")
+        assert "put_call_ratio" in result
+        assert "max_pain" in result
+        assert "avg_implied_volatility" in result
+
+    @patch("src.tools.market_data_tools.yf")
+    def test_no_options_available(self, mock_yf):
+        mock_ticker = MagicMock()
+        mock_ticker.options = ()
+        mock_yf.Ticker.return_value = mock_ticker
+        result = get_options_chain.__wrapped__("SMALLCAP", "NSE")
+        assert "message" in result
+
+
+class TestGetSectorPerformance:
+    @patch("src.tools.market_data_tools.yf")
+    def test_returns_sector_data(self, mock_yf):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"sector": "Technology"}
+        mock_yf.Ticker.return_value = mock_ticker
+        mock_yf.download.return_value = _make_stock_df(days=200)
+        result = get_sector_performance.__wrapped__("AAPL", "NASDAQ")
+        assert "sector" in result
+        assert "relative_strength" in result
+
+    @patch("src.tools.market_data_tools.yf")
+    def test_missing_sector(self, mock_yf):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {}
+        mock_yf.Ticker.return_value = mock_ticker
+        result = get_sector_performance.__wrapped__("UNKNOWN", "NSE")
         assert "error" in result
