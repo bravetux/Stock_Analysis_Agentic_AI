@@ -525,3 +525,128 @@ def calculate_obv(ticker: str, exchange: str) -> dict:
         "signal": "BULLISH" if divergence == "BULLISH_DIVERGENCE" or (obv_trend == "RISING" and price_trend == "RISING") else
                   "BEARISH" if divergence == "BEARISH_DIVERGENCE" or (obv_trend == "FALLING" and price_trend == "FALLING") else "NEUTRAL",
     }
+
+
+@tool
+def calculate_ichimoku(ticker: str, exchange: str) -> dict:
+    """Calculate Ichimoku Cloud components: Tenkan-sen, Kijun-sen, Senkou Span A/B.
+    Widely used in Asian markets for trend, support/resistance, and momentum."""
+    df = _fetch_price_data(ticker, exchange, period="1y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    ichimoku = ta.ichimoku(df["High"], df["Low"], df["Close"])
+    if ichimoku is None or (isinstance(ichimoku, tuple) and ichimoku[0].empty):
+        return {"error": "Ichimoku calculation failed"}
+
+    ichi_df = ichimoku[0] if isinstance(ichimoku, tuple) else ichimoku
+    df = pd.concat([df, ichi_df], axis=1)
+    df = df.dropna()
+
+    if df.empty:
+        return {"error": "Insufficient data for Ichimoku"}
+
+    tenkan_col = [c for c in df.columns if "ITS" in str(c)]
+    kijun_col = [c for c in df.columns if "IKS" in str(c)]
+    span_a_col = [c for c in df.columns if "ISA" in str(c)]
+    span_b_col = [c for c in df.columns if "ISB" in str(c)]
+
+    current = float(df["Close"].iloc[-1])
+    tenkan = round(float(df[tenkan_col[0]].iloc[-1]), 2) if tenkan_col else None
+    kijun = round(float(df[kijun_col[0]].iloc[-1]), 2) if kijun_col else None
+    span_a = round(float(df[span_a_col[0]].iloc[-1]), 2) if span_a_col else None
+    span_b = round(float(df[span_b_col[0]].iloc[-1]), 2) if span_b_col else None
+
+    cloud_color = "GREEN" if span_a and span_b and span_a > span_b else "RED"
+
+    cloud_top = max(span_a or 0, span_b or 0)
+    cloud_bottom = min(span_a or 0, span_b or 0)
+    if current > cloud_top:
+        price_vs_cloud = "ABOVE"
+    elif current < cloud_bottom:
+        price_vs_cloud = "BELOW"
+    else:
+        price_vs_cloud = "INSIDE"
+
+    tk_signal = "BULLISH" if tenkan and kijun and tenkan > kijun else "BEARISH"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "current_price": round(current, 2),
+        "tenkan_sen": tenkan,
+        "kijun_sen": kijun,
+        "senkou_span_a": span_a,
+        "senkou_span_b": span_b,
+        "cloud_color": cloud_color,
+        "price_vs_cloud": price_vs_cloud,
+        "tk_cross_signal": tk_signal,
+        "signal": "BULLISH" if price_vs_cloud == "ABOVE" and cloud_color == "GREEN" else
+                  "BEARISH" if price_vs_cloud == "BELOW" and cloud_color == "RED" else "NEUTRAL",
+    }
+
+
+@tool
+def calculate_williams_r(ticker: str, exchange: str) -> dict:
+    """Calculate Williams %R (14-period) overbought/oversold indicator.
+    Range: 0 to -100. Overbought > -20, Oversold < -80."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    willr = ta.willr(df["High"], df["Low"], df["Close"], length=14)
+    if willr is None or willr.dropna().empty:
+        return {"error": "Williams %R calculation failed"}
+
+    value = round(float(willr.iloc[-1]), 2)
+
+    if value > -20:
+        signal = "OVERBOUGHT"
+    elif value < -80:
+        signal = "OVERSOLD"
+    else:
+        signal = "NEUTRAL"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "williams_r": value,
+        "signal": signal,
+    }
+
+
+@tool
+def calculate_adx_directional(ticker: str, exchange: str) -> dict:
+    """Calculate ADX with +DI and -DI for both trend strength AND direction.
+    ADX > 25 = strong trend. +DI > -DI = bullish direction."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    adx_df = ta.adx(df["High"], df["Low"], df["Close"], length=14)
+    if adx_df is None or adx_df.empty:
+        return {"error": "ADX calculation failed"}
+
+    adx_col = [c for c in adx_df.columns if c == "ADX_14"]
+    dmp_col = [c for c in adx_df.columns if "DMP" in c]
+    dmn_col = [c for c in adx_df.columns if "DMN" in c]
+
+    if not adx_col or not dmp_col or not dmn_col:
+        return {"error": "ADX directional columns not found"}
+
+    adx_val = round(float(adx_df[adx_col[0]].iloc[-1]), 2)
+    plus_di = round(float(adx_df[dmp_col[0]].iloc[-1]), 2)
+    minus_di = round(float(adx_df[dmn_col[0]].iloc[-1]), 2)
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "adx": adx_val,
+        "plus_di": plus_di,
+        "minus_di": minus_di,
+        "trend_strength": "STRONG" if adx_val > 25 else "WEAK",
+        "trend_direction": "BULLISH" if plus_di > minus_di else "BEARISH",
+        "signal": "STRONG_BULLISH" if adx_val > 25 and plus_di > minus_di else
+                  "STRONG_BEARISH" if adx_val > 25 and plus_di < minus_di else
+                  "WEAK_BULLISH" if plus_di > minus_di else "WEAK_BEARISH",
+    }

@@ -18,6 +18,9 @@ from src.tools.technical_analysis_tools import (
     calculate_fibonacci_levels,
     calculate_vwap,
     calculate_obv,
+    calculate_ichimoku,
+    calculate_williams_r,
+    calculate_adx_directional,
 )
 
 
@@ -248,4 +251,81 @@ class TestCalculateOBV:
     def test_empty_data(self, mock_yf):
         mock_yf.download.return_value = pd.DataFrame()
         result = calculate_obv.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateIchimoku:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_ichimoku_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ichimoku.__wrapped__("RELIANCE", "NSE")
+        assert "tenkan_sen" in result
+        assert "kijun_sen" in result
+        assert "cloud_color" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_cloud_color_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ichimoku.__wrapped__("AAPL", "NASDAQ")
+        assert result["cloud_color"] in ("GREEN", "RED")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_price_vs_cloud(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_ichimoku.__wrapped__("TCS", "NSE")
+        assert result["price_vs_cloud"] in ("ABOVE", "INSIDE", "BELOW")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_ichimoku.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateWilliamsR:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_williams_r(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_williams_r.__wrapped__("RELIANCE", "NSE")
+        assert "williams_r" in result
+        assert "signal" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_signal_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_williams_r.__wrapped__("AAPL", "NASDAQ")
+        assert result["signal"] in ("OVERBOUGHT", "OVERSOLD", "NEUTRAL")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_williams_r.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateADXDirectional:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_adx_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_adx_directional.__wrapped__("RELIANCE", "NSE")
+        assert "adx" in result
+        assert "plus_di" in result
+        assert "minus_di" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_trend_direction(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_adx_directional.__wrapped__("AAPL", "NASDAQ")
+        assert result["trend_direction"] in ("BULLISH", "BEARISH")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_trend_strength(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_adx_directional.__wrapped__("TCS", "NSE")
+        assert result["trend_strength"] in ("STRONG", "WEAK")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_adx_directional.__wrapped__("INVALID", "NSE")
         assert "error" in result
