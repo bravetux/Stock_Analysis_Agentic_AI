@@ -76,6 +76,15 @@ with st.sidebar:
             st.markdown(f"- {desc}")
         st.markdown(f"- Up to **{max_queries}** news search queries")
 
+    # Show new capabilities summary
+    new_capabilities = {
+        "beginner": "Includes: Composite Score",
+        "novice": "Includes: EMA Crossovers, Composite Score, Risk Metrics",
+        "intermediate": "Includes: Fibonacci, VWAP, Insider Activity, MF Holdings, Trendlyne",
+        "expert": "Includes: All 40+ tools, Options Chain, Chart Patterns, Full Risk Dashboard",
+    }
+    st.info(new_capabilities.get(selected_profile, ""))
+
     analyze_btn = st.button("Analyze", type="primary", use_container_width=True)
 
 # --- Session State ---
