@@ -35,6 +35,8 @@ def main():
         default=DEFAULT_PROFILE,
         help=f"Analysis level (default: {DEFAULT_PROFILE})",
     )
+    parser.add_argument("--pdf", action="store_true", help="Export analysis as PDF to reports/ folder")
+    parser.add_argument("--cached", action="store_true", help="Use cached report from database if available")
     args = parser.parse_args()
 
     if not args.ticker and not args.batch:
@@ -42,11 +44,58 @@ def main():
         sys.exit(1)
 
     from src.agents.orchestrator import create_orchestrator
-    from src.config.exchanges import detect_exchange, get_display_ticker
+    from src.config.exchanges import detect_exchange, get_display_ticker, strip_prefix
     from src.tools.batch_tools import read_stocks_file
+    from src.config.settings import settings
+    from src.db.report_store import ReportStore
+    from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk
 
     profile = PROFILES[args.profile]
     print(f"Analysis level: {profile.label} — {profile.description}\n")
+
+    store = ReportStore(db_path=settings.db_path, cache_hours=settings.report_cache_hours)
+
+    def analyze_single(ticker_input: str, exchange_override: str | None = None):
+        """Analyze a single stock, save to DB, optionally export PDF."""
+        ticker = strip_prefix(ticker_input)
+        if exchange_override:
+            exchange = exchange_override.upper()
+        else:
+            exchange = detect_exchange(ticker_input).value
+        display = get_display_ticker(ticker_input)
+
+        if args.cached:
+            cached = store.get_latest_report(ticker, exchange)
+            if cached:
+                print(f"[Cached] {display} on {exchange} (from {cached['analyzed_at']})")
+                report_md = cached["report_markdown"]
+                print(report_md)
+                if args.pdf:
+                    pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, cached["profile"])
+                    pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+                    print(f"PDF saved: {pdf_path}")
+                return report_md
+            else:
+                print(f"No cached report for {display}. Running fresh analysis...")
+
+        print(f"Analyzing {display} on {exchange}...")
+        agent = create_orchestrator(profile=args.profile)
+        response = agent(
+            f"Analyze the stock {display} on {exchange} exchange. "
+            f"Use up to {profile.news_queries} news search queries.\n\n"
+            f"{profile.prompt_instructions}"
+        )
+        report_md = str(response)
+        print(report_md)
+
+        pdf_path = None
+        if args.pdf:
+            pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, args.profile)
+            pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+            print(f"PDF saved: {pdf_path}")
+
+        store.save_report(ticker, exchange, args.profile, report_md, pdf_path)
+        return report_md
 
     if args.batch:
         file_path = args.batch
@@ -55,33 +104,14 @@ def main():
             print(f"Error: {stocks[0]['error']}")
             sys.exit(1)
 
-        print(f"Batch analyzing {len(stocks)} stocks...")
-        agent = create_orchestrator(profile=args.profile)
-        stock_list = ", ".join(f"{s['ticker']} ({s['exchange']})" for s in stocks)
-        response = agent(
-            f"Analyze these stocks: {stock_list}. "
-            f"Use up to {profile.news_queries} news search queries per stock. "
-            f"Provide individual analysis for each, then a summary comparison.\n\n"
-            f"{profile.prompt_instructions}"
-        )
-        print(str(response))
+        print(f"Batch analyzing {len(stocks)} stocks...\n")
+        for i, stock in enumerate(stocks, 1):
+            print(f"\n{'='*60}")
+            print(f"[{i}/{len(stocks)}] {stock['ticker']} ({stock['exchange']})")
+            print(f"{'='*60}\n")
+            analyze_single(stock["ticker"], stock["exchange"])
     else:
-        ticker_input = args.ticker
-        if args.exchange:
-            exchange = args.exchange.upper()
-        else:
-            exchange = detect_exchange(ticker_input).value
-
-        display = get_display_ticker(ticker_input)
-        print(f"Analyzing {display} on {exchange}...")
-
-        agent = create_orchestrator(profile=args.profile)
-        response = agent(
-            f"Analyze the stock {display} on {exchange} exchange. "
-            f"Use up to {profile.news_queries} news search queries.\n\n"
-            f"{profile.prompt_instructions}"
-        )
-        print(str(response))
+        analyze_single(args.ticker, args.exchange)
 
 
 if __name__ == "__main__":
