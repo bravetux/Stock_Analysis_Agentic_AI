@@ -15,6 +15,9 @@ from src.tools.technical_analysis_tools import (
     get_technical_summary,
     calculate_ema_crossovers,
     detect_golden_death_cross,
+    calculate_fibonacci_levels,
+    calculate_vwap,
+    calculate_obv,
 )
 
 
@@ -171,4 +174,78 @@ class TestDetectGoldenDeathCross:
     def test_empty_data(self, mock_yf):
         mock_yf.download.return_value = pd.DataFrame()
         result = detect_golden_death_cross.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateFibonacciLevels:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_fib_levels(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_fibonacci_levels.__wrapped__("RELIANCE", "NSE")
+        assert "levels" in result
+        levels = result["levels"]
+        assert "23.6%" in levels
+        assert "38.2%" in levels
+        assert "50.0%" in levels
+        assert "61.8%" in levels
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_nearest_level(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_fibonacci_levels.__wrapped__("AAPL", "NASDAQ")
+        assert "nearest_support" in result
+        assert "nearest_resistance" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_fibonacci_levels.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateVWAP:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_vwap_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_vwap.__wrapped__("RELIANCE", "NSE")
+        assert "vwap" in result
+        assert "price_vs_vwap" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_price_vs_vwap_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_vwap.__wrapped__("TCS", "NSE")
+        assert result["price_vs_vwap"] in ("ABOVE", "BELOW")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_vwap.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateOBV:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_obv_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_obv.__wrapped__("RELIANCE", "NSE")
+        assert "obv" in result
+        assert "obv_trend" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_obv_trend_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_obv.__wrapped__("AAPL", "NASDAQ")
+        assert result["obv_trend"] in ("RISING", "FALLING")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_divergence_field(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = calculate_obv.__wrapped__("TCS", "NSE")
+        assert result["divergence"] in ("BULLISH_DIVERGENCE", "BEARISH_DIVERGENCE", "NONE")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_obv.__wrapped__("INVALID", "NSE")
         assert "error" in result

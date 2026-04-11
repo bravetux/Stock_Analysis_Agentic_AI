@@ -419,3 +419,109 @@ def detect_golden_death_cross(ticker: str, exchange: str) -> dict:
         "signal": "BULLISH" if current_state == "GOLDEN_CROSS" else
                   "BEARISH" if current_state == "DEATH_CROSS" else "NEUTRAL",
     }
+
+
+@tool
+def calculate_fibonacci_levels(ticker: str, exchange: str) -> dict:
+    """Calculate Fibonacci retracement levels from 6-month high/low swing.
+    Returns key levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) and nearest support/resistance."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    swing_high = float(df["High"].max())
+    swing_low = float(df["Low"].min())
+    current = float(df["Close"].iloc[-1])
+    diff = swing_high - swing_low
+
+    ratios = {"23.6%": 0.236, "38.2%": 0.382, "50.0%": 0.500, "61.8%": 0.618, "78.6%": 0.786}
+    levels = {pct: round(swing_high - diff * ratio, 2) for pct, ratio in ratios.items()}
+
+    nearest_support = None
+    nearest_resistance = None
+    for pct, level in sorted(levels.items(), key=lambda x: x[1]):
+        if level < current and (nearest_support is None or level > levels[nearest_support]):
+            nearest_support = pct
+        if level > current and (nearest_resistance is None or level < levels[nearest_resistance]):
+            nearest_resistance = pct
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "current_price": round(current, 2),
+        "swing_high": round(swing_high, 2),
+        "swing_low": round(swing_low, 2),
+        "levels": levels,
+        "nearest_support": {"level": nearest_support, "price": levels.get(nearest_support)} if nearest_support else None,
+        "nearest_resistance": {"level": nearest_resistance, "price": levels.get(nearest_resistance)} if nearest_resistance else None,
+    }
+
+
+@tool
+def calculate_vwap(ticker: str, exchange: str) -> dict:
+    """Calculate Volume-Weighted Average Price. VWAP is a key institutional reference price."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
+    cumulative_tp_vol = (typical_price * df["Volume"]).cumsum()
+    cumulative_vol = df["Volume"].cumsum()
+    df["VWAP"] = cumulative_tp_vol / cumulative_vol
+
+    current = float(df["Close"].iloc[-1])
+    vwap_val = round(float(df["VWAP"].iloc[-1]), 2)
+    distance_pct = round(((current - vwap_val) / vwap_val) * 100, 2)
+
+    vwap_recent = df["VWAP"].tail(20)
+    vwap_trend = "RISING" if float(vwap_recent.iloc[-1]) > float(vwap_recent.iloc[0]) else "FALLING"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "current_price": round(current, 2),
+        "vwap": vwap_val,
+        "price_vs_vwap": "ABOVE" if current > vwap_val else "BELOW",
+        "distance_percent": distance_pct,
+        "vwap_trend": vwap_trend,
+    }
+
+
+@tool
+def calculate_obv(ticker: str, exchange: str) -> dict:
+    """Calculate On-Balance Volume to detect accumulation/distribution via volume flow.
+    Also detects price/OBV divergence (bullish or bearish)."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    obv_series = ta.obv(df["Close"], df["Volume"])
+    if obv_series is None or obv_series.dropna().empty:
+        return {"error": "OBV calculation failed"}
+
+    df["OBV"] = obv_series
+    current_obv = int(df["OBV"].iloc[-1])
+
+    obv_20 = df["OBV"].tail(20)
+    obv_trend = "RISING" if float(obv_20.iloc[-1]) > float(obv_20.iloc[0]) else "FALLING"
+
+    price_20 = df["Close"].tail(20)
+    price_trend = "RISING" if float(price_20.iloc[-1]) > float(price_20.iloc[0]) else "FALLING"
+
+    if price_trend == "FALLING" and obv_trend == "RISING":
+        divergence = "BULLISH_DIVERGENCE"
+    elif price_trend == "RISING" and obv_trend == "FALLING":
+        divergence = "BEARISH_DIVERGENCE"
+    else:
+        divergence = "NONE"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "obv": current_obv,
+        "obv_trend": obv_trend,
+        "price_trend": price_trend,
+        "divergence": divergence,
+        "signal": "BULLISH" if divergence == "BULLISH_DIVERGENCE" or (obv_trend == "RISING" and price_trend == "RISING") else
+                  "BEARISH" if divergence == "BEARISH_DIVERGENCE" or (obv_trend == "FALLING" and price_trend == "FALLING") else "NEUTRAL",
+    }
