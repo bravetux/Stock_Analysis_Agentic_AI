@@ -34,6 +34,7 @@ dependencies = [
     # News
     "GoogleNews>=1.6.12",
     "newspaper3k>=0.2.8",
+    "pytrends>=4.9",
     # Web Scraping
     "beautifulsoup4>=4.12",
     "requests>=2.31",

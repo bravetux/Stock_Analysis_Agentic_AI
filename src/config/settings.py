@@ -31,6 +31,20 @@ class Settings(BaseSettings):
     historical_days: int = Field(default=365, alias="HISTORICAL_DAYS")
     dma_period: int = Field(default=200, alias="DMA_PERIOD")
 
+    # Scoring
+    risk_free_rate: float = Field(default=0.065, alias="RISK_FREE_RATE")
+    var_confidence: float = Field(default=0.95, alias="VAR_CONFIDENCE")
+    technical_weight: float = Field(default=0.40, alias="TECHNICAL_WEIGHT")
+    fundamental_weight: float = Field(default=0.35, alias="FUNDAMENTAL_WEIGHT")
+    sentiment_weight: float = Field(default=0.25, alias="SENTIMENT_WEIGHT")
+
+    # Cache
+    cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
+    cache_dir: str = Field(default=".cache", alias="CACHE_DIR")
+
+    # Google Trends
+    trends_timeframe: str = Field(default="today 3-m", alias="TRENDS_TIMEFRAME")
+
     # Rate Limiting
     scrape_delay_seconds: float = Field(default=1.0, alias="SCRAPE_DELAY_SECONDS")
     news_api_delay: float = Field(default=0.5, alias="NEWS_API_DELAY")
