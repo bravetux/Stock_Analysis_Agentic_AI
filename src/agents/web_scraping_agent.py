@@ -13,6 +13,8 @@ from src.tools.scraping_tools import (
     scrape_google_finance,
     scrape_yahoo_finance_page,
     scrape_moneycontrol,
+    scrape_trendlyne,
+    scrape_tickertape,
 )
 from src.tools.chartink_tools import (
     scrape_chartink_screener,
@@ -36,6 +38,8 @@ def create_web_scraping_agent() -> Agent:
             scrape_google_finance,
             scrape_yahoo_finance_page,
             scrape_moneycontrol,
+            scrape_trendlyne,
+            scrape_tickertape,
             scrape_chartink_screener,
             get_chartink_stock_data,
         ],

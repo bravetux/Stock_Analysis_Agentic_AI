@@ -14,6 +14,7 @@ from src.tools.news_tools import (
     search_news_batch,
     extract_article_content,
     search_location_news,
+    get_google_trends,
 )
 
 
@@ -34,6 +35,7 @@ def create_news_agent() -> Agent:
             search_news_batch,
             extract_article_content,
             search_location_news,
+            get_google_trends,
         ],
         system_prompt=NEWS_AGENT_PROMPT,
         conversation_manager=SlidingWindowConversationManager(window_size=10),

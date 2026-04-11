@@ -14,6 +14,8 @@ from src.tools.market_data_tools import (
     get_stock_quote,
     get_historical_data,
     get_market_overview,
+    get_options_chain,
+    get_sector_performance,
 )
 
 
@@ -34,6 +36,8 @@ def create_market_data_agent() -> Agent:
             get_stock_quote,
             get_historical_data,
             get_market_overview,
+            get_options_chain,
+            get_sector_performance,
         ],
         system_prompt=MARKET_DATA_AGENT_PROMPT,
         conversation_manager=SlidingWindowConversationManager(window_size=10),

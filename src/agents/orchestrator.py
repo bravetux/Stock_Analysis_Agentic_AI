@@ -33,6 +33,18 @@ from src.tools.technical_analysis_tools import (
     calculate_support_resistance,
     estimate_next_high_low,
     get_technical_summary,
+    calculate_ema_crossovers,
+    detect_golden_death_cross,
+    calculate_fibonacci_levels,
+    calculate_vwap,
+    calculate_obv,
+    calculate_ichimoku,
+    calculate_williams_r,
+    calculate_adx_directional,
+    calculate_trend_strength,
+    detect_chart_patterns,
+    calculate_risk_metrics,
+    calculate_relative_strength,
 )
 from src.tools.news_tools import (
     search_google_news,
@@ -48,6 +60,15 @@ from src.tools.scraping_tools import (
 from src.tools.screener_tools import scrape_screener_in
 from src.tools.chartink_tools import scrape_chartink_screener, get_chartink_stock_data
 from src.tools.batch_tools import read_stocks_file
+from src.tools.fundamental_tools import (
+    get_insider_transactions,
+    get_mutual_fund_holdings,
+    get_earnings_calendar,
+)
+from src.tools.news_tools import get_google_trends
+from src.tools.market_data_tools import get_options_chain, get_sector_performance
+from src.tools.scraping_tools import scrape_trendlyne, scrape_tickertape
+from src.tools.scoring_tools import calculate_composite_score
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +168,27 @@ def create_orchestrator(session_id: str | None = None, profile: str = DEFAULT_PR
         "scrape_chartink_screener": scrape_chartink_screener,
         "get_chartink_stock_data": get_chartink_stock_data,
         "read_stocks_file": read_stocks_file,
+        "calculate_ema_crossovers": calculate_ema_crossovers,
+        "detect_golden_death_cross": detect_golden_death_cross,
+        "calculate_fibonacci_levels": calculate_fibonacci_levels,
+        "calculate_vwap": calculate_vwap,
+        "calculate_obv": calculate_obv,
+        "calculate_ichimoku": calculate_ichimoku,
+        "calculate_williams_r": calculate_williams_r,
+        "calculate_adx_directional": calculate_adx_directional,
+        "calculate_trend_strength": calculate_trend_strength,
+        "detect_chart_patterns": detect_chart_patterns,
+        "calculate_risk_metrics": calculate_risk_metrics,
+        "calculate_relative_strength": calculate_relative_strength,
+        "get_insider_transactions": get_insider_transactions,
+        "get_mutual_fund_holdings": get_mutual_fund_holdings,
+        "get_earnings_calendar": get_earnings_calendar,
+        "get_google_trends": get_google_trends,
+        "get_options_chain": get_options_chain,
+        "get_sector_performance": get_sector_performance,
+        "scrape_trendlyne": scrape_trendlyne,
+        "scrape_tickertape": scrape_tickertape,
+        "calculate_composite_score": calculate_composite_score,
     }
 
     # Filter tools based on the profile's enabled tool groups

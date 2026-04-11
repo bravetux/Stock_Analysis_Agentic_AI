@@ -11,6 +11,11 @@ from src.config.aws_client import get_bedrock_session
 from src.config.prompts import FUNDAMENTAL_AGENT_PROMPT
 from src.tools.screener_tools import scrape_screener_in
 from src.tools.market_data_tools import get_stock_quote, get_historical_data
+from src.tools.fundamental_tools import (
+    get_insider_transactions,
+    get_mutual_fund_holdings,
+    get_earnings_calendar,
+)
 
 
 def create_fundamental_agent() -> Agent:
@@ -29,6 +34,9 @@ def create_fundamental_agent() -> Agent:
             scrape_screener_in,
             get_stock_quote,
             get_historical_data,
+            get_insider_transactions,
+            get_mutual_fund_holdings,
+            get_earnings_calendar,
         ],
         system_prompt=FUNDAMENTAL_AGENT_PROMPT,
         conversation_manager=SlidingWindowConversationManager(window_size=10),
