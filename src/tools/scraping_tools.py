@@ -161,3 +161,82 @@ def scrape_moneycontrol(ticker: str) -> dict:
     result["news"] = news[:10]
 
     return result
+
+
+@tool
+def scrape_trendlyne(ticker: str) -> dict:
+    """Scrape Trendlyne.com for DMA analysis, momentum score, and forecast data.
+    Indian stocks only."""
+    display = get_display_ticker(ticker)
+    url = f"https://trendlyne.com/equity/{display}/"
+    time.sleep(settings.scrape_delay_seconds)
+
+    resp = _safe_get(url)
+    if resp is None:
+        return {"ticker": display, "error": "Could not fetch Trendlyne data", "source": "trendlyne"}
+
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    data = {}
+    tables = soup.find_all("table")
+    for table in tables[:5]:
+        rows = table.find_all("tr")
+        for row in rows:
+            cells = row.find_all(["td", "th"])
+            if len(cells) >= 2:
+                key = cells[0].get_text(strip=True)
+                val = cells[1].get_text(strip=True)
+                if key:
+                    data[key] = val
+
+    score_divs = soup.find_all(["div", "span"], class_=lambda c: c and "score" in c.lower() if c else False)
+    for div in score_divs[:3]:
+        text = div.get_text(strip=True)
+        if text:
+            data["score_info"] = text
+
+    return {
+        "ticker": display,
+        "source": "trendlyne",
+        "url": url,
+        "data": data,
+    }
+
+
+@tool
+def scrape_tickertape(ticker: str) -> dict:
+    """Scrape Tickertape.in for valuation scores, peer comparison, and checklists.
+    Indian stocks only."""
+    display = get_display_ticker(ticker)
+    url = f"https://www.tickertape.in/stocks/{display}"
+    time.sleep(settings.scrape_delay_seconds)
+
+    resp = _safe_get(url)
+    if resp is None:
+        return {"ticker": display, "error": "Could not fetch Tickertape data", "source": "tickertape"}
+
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    data = {}
+    tables = soup.find_all("table")
+    for idx, table in enumerate(tables[:5]):
+        rows = table.find_all("tr")
+        table_data = []
+        for row in rows:
+            cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
+            if cells:
+                table_data.append(cells)
+        if table_data:
+            data[f"table_{idx}"] = table_data
+
+    checklists = soup.find_all(["div", "li"], class_=lambda c: c and "checklist" in c.lower() if c else False)
+    checklist_items = [item.get_text(strip=True) for item in checklists[:10]]
+    if checklist_items:
+        data["checklist"] = checklist_items
+
+    return {
+        "ticker": display,
+        "source": "tickertape",
+        "url": url,
+        "data": data,
+    }

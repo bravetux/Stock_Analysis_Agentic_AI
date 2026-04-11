@@ -9,6 +9,8 @@ from src.tools.scraping_tools import (
     scrape_google_finance,
     scrape_yahoo_finance_page,
     scrape_moneycontrol,
+    scrape_trendlyne,
+    scrape_tickertape,
 )
 
 
@@ -90,3 +92,39 @@ class TestScrapeYahooFinancePage:
         result = scrape_yahoo_finance_page.__wrapped__("AAPL", "NASDAQ")
         assert result["source"] == "Yahoo Finance"
         assert "Previous Close" in result.get("summary_stats", {})
+
+
+class TestScrapeTrendlyne:
+    @patch("src.tools.scraping_tools._safe_get")
+    def test_returns_trendlyne_data(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = '<html><body><table><tr><td>DMA 200</td><td>Above</td></tr></table></body></html>'
+        mock_get.return_value = mock_response
+        result = scrape_trendlyne.__wrapped__("RELIANCE")
+        assert "source" in result
+        assert result["source"] == "trendlyne"
+        assert "data" in result
+
+    @patch("src.tools.scraping_tools._safe_get")
+    def test_handles_failure(self, mock_get):
+        mock_get.return_value = None
+        result = scrape_trendlyne.__wrapped__("INVALID")
+        assert "error" in result
+
+
+class TestScrapeTickertape:
+    @patch("src.tools.scraping_tools._safe_get")
+    def test_returns_tickertape_data(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = '<html><body><table><tr><td>TCS</td><td>PE: 25</td></tr></table></body></html>'
+        mock_get.return_value = mock_response
+        result = scrape_tickertape.__wrapped__("RELIANCE")
+        assert "source" in result
+        assert result["source"] == "tickertape"
+        assert "data" in result
+
+    @patch("src.tools.scraping_tools._safe_get")
+    def test_handles_failure(self, mock_get):
+        mock_get.return_value = None
+        result = scrape_tickertape.__wrapped__("INVALID")
+        assert "error" in result
