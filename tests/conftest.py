@@ -30,3 +30,6 @@ def _set_test_env(monkeypatch):
     monkeypatch.setenv("CACHE_ENABLED", "false")
     monkeypatch.setenv("CACHE_DIR", ".test-cache")
     monkeypatch.setenv("TRENDS_TIMEFRAME", "today 3-m")
+    monkeypatch.setenv("REPORT_CACHE_HOURS", "24")
+    monkeypatch.setenv("REPORTS_DIR", ".test-reports")
+    monkeypatch.setenv("DB_PATH", ":memory:")

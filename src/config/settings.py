@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     session_backend: str = Field(default="file", alias="SESSION_BACKEND")
     session_dir: str = Field(default=".sessions", alias="SESSION_DIR")
 
+    # Report Database
+    report_cache_hours: int = Field(default=24, alias="REPORT_CACHE_HOURS")
+    reports_dir: str = Field(default="reports", alias="REPORTS_DIR")
+    db_path: str = Field(default="data/reports.db", alias="DB_PATH")
+
 
 # Singleton
 settings = Settings()
