@@ -6,6 +6,7 @@
 import logging
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import pandas_ta as ta
 from strands import tool
 from src.config.exchanges import ExchangeEnum, normalize_ticker, get_display_ticker
@@ -649,4 +650,267 @@ def calculate_adx_directional(ticker: str, exchange: str) -> dict:
         "signal": "STRONG_BULLISH" if adx_val > 25 and plus_di > minus_di else
                   "STRONG_BEARISH" if adx_val > 25 and plus_di < minus_di else
                   "WEAK_BULLISH" if plus_di > minus_di else "WEAK_BEARISH",
+    }
+
+
+@tool
+def calculate_trend_strength(ticker: str, exchange: str) -> dict:
+    """Calculate composite trend strength score (0-100) combining ADX, EMA alignment, and OBV."""
+    df = _fetch_price_data(ticker, exchange, period="1y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    score = 0
+
+    # ADX strength component (0-40 points)
+    adx_df = ta.adx(df["High"], df["Low"], df["Close"], length=14)
+    if adx_df is not None and not adx_df.empty:
+        adx_col = [c for c in adx_df.columns if c == "ADX_14"]
+        if adx_col:
+            adx_val = float(adx_df[adx_col[0]].iloc[-1])
+            score += min(40, adx_val * 1.6)
+
+    # EMA alignment component (0-30 points)
+    ema_9 = ta.ema(df["Close"], length=9)
+    ema_21 = ta.ema(df["Close"], length=21)
+    ema_50 = ta.ema(df["Close"], length=50)
+    if ema_9 is not None and ema_21 is not None and ema_50 is not None:
+        e9 = float(ema_9.iloc[-1])
+        e21 = float(ema_21.iloc[-1])
+        e50 = float(ema_50.iloc[-1])
+        if e9 > e21 > e50 or e9 < e21 < e50:
+            score += 30
+        elif (e9 > e21 and e21 < e50) or (e9 < e21 and e21 > e50):
+            score += 15
+
+    # Volume confirmation component (0-30 points)
+    obv = ta.obv(df["Close"], df["Volume"])
+    if obv is not None and not obv.dropna().empty:
+        obv_20 = obv.tail(20)
+        price_20 = df["Close"].tail(20)
+        obv_rising = float(obv_20.iloc[-1]) > float(obv_20.iloc[0])
+        price_rising = float(price_20.iloc[-1]) > float(price_20.iloc[0])
+        if obv_rising == price_rising:
+            score += 30
+        else:
+            score += 10
+
+    score = min(100, round(score))
+
+    current = float(df["Close"].iloc[-1])
+    sma_50 = ta.sma(df["Close"], length=50)
+    if sma_50 is not None and not sma_50.dropna().empty:
+        sma_val = float(sma_50.iloc[-1])
+        if current > sma_val * 1.02:
+            direction = "UP"
+        elif current < sma_val * 0.98:
+            direction = "DOWN"
+        else:
+            direction = "SIDEWAYS"
+    else:
+        direction = "SIDEWAYS"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "trend_score": score,
+        "trend_direction": direction,
+        "confidence": "HIGH" if score >= 70 else "MEDIUM" if score >= 40 else "LOW",
+    }
+
+
+@tool
+def detect_chart_patterns(ticker: str, exchange: str) -> dict:
+    """Detect basic chart patterns: double top/bottom, ascending/descending triangles.
+    Uses peak/trough detection on 6-month data."""
+    df = _fetch_price_data(ticker, exchange, period="6mo")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    patterns = []
+    highs = df["High"].values
+    lows = df["Low"].values
+
+    window = 10
+    peaks = []
+    troughs = []
+    for i in range(window, len(highs) - window):
+        if highs[i] == max(highs[i - window:i + window + 1]):
+            peaks.append((i, float(highs[i])))
+        if lows[i] == min(lows[i - window:i + window + 1]):
+            troughs.append((i, float(lows[i])))
+
+    tolerance = 0.03
+
+    # Double Top
+    for i in range(len(peaks) - 1):
+        idx1, p1 = peaks[i]
+        idx2, p2 = peaks[i + 1]
+        if abs(p1 - p2) / p1 < tolerance and idx2 - idx1 > 10:
+            patterns.append({
+                "pattern": "DOUBLE_TOP",
+                "date_range": f"{df.index[idx1].strftime('%Y-%m-%d')} to {df.index[idx2].strftime('%Y-%m-%d')}",
+                "level": round((p1 + p2) / 2, 2),
+                "signal": "BEARISH",
+            })
+
+    # Double Bottom
+    for i in range(len(troughs) - 1):
+        idx1, t1 = troughs[i]
+        idx2, t2 = troughs[i + 1]
+        if abs(t1 - t2) / t1 < tolerance and idx2 - idx1 > 10:
+            patterns.append({
+                "pattern": "DOUBLE_BOTTOM",
+                "date_range": f"{df.index[idx1].strftime('%Y-%m-%d')} to {df.index[idx2].strftime('%Y-%m-%d')}",
+                "level": round((t1 + t2) / 2, 2),
+                "signal": "BULLISH",
+            })
+
+    # Ascending/Descending Triangle
+    if len(peaks) >= 2 and len(troughs) >= 2:
+        recent_peaks = peaks[-3:]
+        recent_troughs = troughs[-3:]
+        peak_levels = [p[1] for p in recent_peaks]
+        trough_levels = [t[1] for t in recent_troughs]
+
+        flat_resistance = max(peak_levels) - min(peak_levels) < max(peak_levels) * tolerance
+        rising_support = all(trough_levels[i] < trough_levels[i + 1] for i in range(len(trough_levels) - 1))
+
+        if flat_resistance and rising_support and len(recent_troughs) >= 2:
+            patterns.append({
+                "pattern": "ASCENDING_TRIANGLE",
+                "resistance": round(sum(peak_levels) / len(peak_levels), 2),
+                "signal": "BULLISH",
+            })
+
+        flat_support = max(trough_levels) - min(trough_levels) < max(trough_levels) * tolerance
+        falling_resistance = all(peak_levels[i] > peak_levels[i + 1] for i in range(len(peak_levels) - 1))
+
+        if flat_support and falling_resistance and len(recent_peaks) >= 2:
+            patterns.append({
+                "pattern": "DESCENDING_TRIANGLE",
+                "support": round(sum(trough_levels) / len(trough_levels), 2),
+                "signal": "BEARISH",
+            })
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "patterns": patterns,
+        "total_patterns_found": len(patterns),
+    }
+
+
+@tool
+def calculate_risk_metrics(ticker: str, exchange: str) -> dict:
+    """Calculate risk metrics: Sharpe ratio, max drawdown, beta, VaR, and volatility."""
+    df = _fetch_price_data(ticker, exchange, period="1y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    returns = df["Close"].pct_change().dropna()
+    if len(returns) < 20:
+        return {"error": "Insufficient data for risk calculation"}
+
+    volatility = round(float(returns.std() * np.sqrt(252) * 100), 2)
+
+    annual_return = float((1 + returns.mean()) ** 252 - 1)
+    risk_free = settings.risk_free_rate
+    sharpe = round((annual_return - risk_free) / (returns.std() * np.sqrt(252)), 2) if returns.std() > 0 else 0.0
+
+    cumulative = (1 + returns).cumprod()
+    running_max = cumulative.cummax()
+    drawdown = (cumulative - running_max) / running_max
+    max_dd = round(float(drawdown.min() * 100), 2)
+    max_dd_end = drawdown.idxmin()
+    max_dd_start = cumulative[:max_dd_end].idxmax() if max_dd_end is not None else None
+
+    # Beta vs market index
+    ex = ExchangeEnum(exchange.upper())
+    index_map = {
+        ExchangeEnum.NSE: "^NSEI",
+        ExchangeEnum.BSE: "^BSESN",
+        ExchangeEnum.NASDAQ: "^IXIC",
+    }
+    beta = 1.0
+    try:
+        idx_df = yf.download(index_map[ex], period="1y", progress=False)
+        if hasattr(idx_df.columns, 'levels') and len(idx_df.columns.levels) > 1:
+            idx_df.columns = idx_df.columns.get_level_values(0)
+        idx_returns = idx_df["Close"].pct_change().dropna()
+        aligned = pd.concat([returns, idx_returns], axis=1, join="inner")
+        aligned.columns = ["stock", "market"]
+        if len(aligned) > 20:
+            cov = aligned["stock"].cov(aligned["market"])
+            var_market = aligned["market"].var()
+            beta = round(cov / var_market, 2) if var_market > 0 else 1.0
+    except Exception:
+        pass
+
+    confidence = settings.var_confidence
+    var_95 = round(float(np.percentile(returns, (1 - confidence) * 100) * 100), 2)
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "sharpe_ratio": sharpe,
+        "max_drawdown_pct": max_dd,
+        "max_drawdown_period": {
+            "start": max_dd_start.strftime("%Y-%m-%d") if max_dd_start is not None else None,
+            "end": max_dd_end.strftime("%Y-%m-%d") if max_dd_end is not None else None,
+        },
+        "beta": beta,
+        "var_95": var_95,
+        "volatility": volatility,
+    }
+
+
+@tool
+def calculate_relative_strength(ticker: str, exchange: str) -> dict:
+    """Compare stock performance against its market index over multiple timeframes."""
+    df = _fetch_price_data(ticker, exchange, period="1y")
+    if df.empty:
+        return {"error": f"No data for {ticker}"}
+
+    ex = ExchangeEnum(exchange.upper())
+    index_map = {
+        ExchangeEnum.NSE: "^NSEI",
+        ExchangeEnum.BSE: "^BSESN",
+        ExchangeEnum.NASDAQ: "^IXIC",
+    }
+
+    try:
+        idx_df = yf.download(index_map[ex], period="1y", progress=False)
+        if hasattr(idx_df.columns, 'levels') and len(idx_df.columns.levels) > 1:
+            idx_df.columns = idx_df.columns.get_level_values(0)
+    except Exception:
+        return {"error": "Could not fetch market index data"}
+
+    if idx_df.empty:
+        return {"error": "No market index data available"}
+
+    performance = {}
+    for label, days in [("1w", 5), ("1m", 21), ("3m", 63), ("6m", 126)]:
+        if len(df) > days and len(idx_df) > days:
+            stock_ret = (float(df["Close"].iloc[-1]) / float(df["Close"].iloc[-days]) - 1) * 100
+            idx_ret = (float(idx_df["Close"].iloc[-1]) / float(idx_df["Close"].iloc[-days]) - 1) * 100
+            performance[label] = {
+                "stock": round(stock_ret, 2),
+                "market": round(idx_ret, 2),
+                "excess": round(stock_ret - idx_ret, 2),
+            }
+
+    excess_3m = performance.get("3m", {}).get("excess", 0)
+    if excess_3m > 5:
+        classification = "OUTPERFORMING"
+    elif excess_3m < -5:
+        classification = "UNDERPERFORMING"
+    else:
+        classification = "IN_LINE"
+
+    return {
+        "ticker": get_display_ticker(ticker),
+        "exchange": exchange,
+        "relative_performance": performance,
+        "classification": classification,
     }

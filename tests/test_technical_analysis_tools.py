@@ -21,6 +21,10 @@ from src.tools.technical_analysis_tools import (
     calculate_ichimoku,
     calculate_williams_r,
     calculate_adx_directional,
+    calculate_trend_strength,
+    detect_chart_patterns,
+    calculate_risk_metrics,
+    calculate_relative_strength,
 )
 
 
@@ -328,4 +332,80 @@ class TestCalculateADXDirectional:
     def test_empty_data(self, mock_yf):
         mock_yf.download.return_value = pd.DataFrame()
         result = calculate_adx_directional.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateTrendStrength:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_trend_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_trend_strength.__wrapped__("RELIANCE", "NSE")
+        assert "trend_score" in result
+        assert 0 <= result["trend_score"] <= 100
+        assert "trend_direction" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_direction_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_trend_strength.__wrapped__("AAPL", "NASDAQ")
+        assert result["trend_direction"] in ("UP", "DOWN", "SIDEWAYS")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_trend_strength.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestDetectChartPatterns:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_patterns(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=150)
+        result = detect_chart_patterns.__wrapped__("RELIANCE", "NSE")
+        assert "patterns" in result
+        assert isinstance(result["patterns"], list)
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = detect_chart_patterns.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateRiskMetrics:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_risk_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=365)
+        result = calculate_risk_metrics.__wrapped__("RELIANCE", "NSE")
+        assert "sharpe_ratio" in result
+        assert "max_drawdown_pct" in result
+        assert "beta" in result
+        assert "var_95" in result
+        assert "volatility" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_risk_metrics.__wrapped__("INVALID", "NSE")
+        assert "error" in result
+
+
+class TestCalculateRelativeStrength:
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_returns_rs_data(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_relative_strength.__wrapped__("RELIANCE", "NSE")
+        assert "relative_performance" in result
+        assert "classification" in result
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_classification_values(self, mock_yf):
+        mock_yf.download.return_value = _make_price_df(days=200)
+        result = calculate_relative_strength.__wrapped__("AAPL", "NASDAQ")
+        assert result["classification"] in ("OUTPERFORMING", "UNDERPERFORMING", "IN_LINE")
+
+    @patch("src.tools.technical_analysis_tools.yf")
+    def test_empty_data(self, mock_yf):
+        mock_yf.download.return_value = pd.DataFrame()
+        result = calculate_relative_strength.__wrapped__("INVALID", "NSE")
         assert "error" in result
