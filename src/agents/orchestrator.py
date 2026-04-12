@@ -225,15 +225,22 @@ def create_orchestrator(
     # Audit hooks with progress tracking
     _tool_start_times: dict[str, float] = {}
 
+    def _get_tool_name(tool_use) -> str:
+        if tool_use is None:
+            return "unknown"
+        if isinstance(tool_use, dict):
+            return tool_use.get("name", "unknown")
+        return getattr(tool_use, "name", "unknown")
+
     def _before_tool(event: BeforeToolCallEvent) -> None:
-        tool_name = event.tool_use.get("name", "unknown") if isinstance(event.tool_use, dict) else getattr(event.tool_use, "name", "unknown")
+        tool_name = _get_tool_name(event.tool_use)
         _tool_start_times[tool_name] = time.time()
         logger.info("TOOL_CALL_START tool=%s", tool_name)
         if on_tool_start:
             on_tool_start(tool_name)
 
     def _after_tool(event: AfterToolCallEvent) -> None:
-        tool_name = event.tool_use.get("name", "unknown") if isinstance(event.tool_use, dict) else getattr(event.tool_use, "name", "unknown")
+        tool_name = _get_tool_name(event.tool_use)
         elapsed = time.time() - _tool_start_times.pop(tool_name, time.time())
         logger.info("TOOL_CALL_END tool=%s elapsed=%.2fs", tool_name, elapsed)
         if on_tool_end:
