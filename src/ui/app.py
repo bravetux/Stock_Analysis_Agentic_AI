@@ -38,18 +38,34 @@ store = get_report_store()
 
 
 class ToolTracker:
-    """Tracks tool execution times for progress display."""
+    """Tracks tool execution times with live table updates during analysis."""
 
     def __init__(self):
         self.entries: list[dict] = []
         self._start_times: dict[str, float] = {}
         self._status_container = None
-        self._status_text = None
+        self._table_placeholder = None
+        self._total_placeholder = None
         self._tool_count = 0
 
     def set_status_container(self, container):
         """Set the Streamlit status container for live updates."""
         self._status_container = container
+
+    def set_table_placeholder(self, table_ph, total_ph):
+        """Set Streamlit placeholders for the live-updating table and total metric."""
+        self._table_placeholder = table_ph
+        self._total_placeholder = total_ph
+
+    def _refresh_table(self):
+        """Redraw the live table with current entries."""
+        if not self._table_placeholder:
+            return
+        df = self.get_dataframe()
+        if not df.empty:
+            self._table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+            total_time = df["Duration (s)"].sum()
+            self._total_placeholder.metric("Total Tool Execution Time", f"{total_time:.2f}s")
 
     def on_start(self, tool_name: str):
         self._start_times[tool_name] = time.time()
@@ -59,7 +75,6 @@ class ToolTracker:
                 label=f"Running: {tool_name} (tool #{self._tool_count})...",
                 state="running",
             )
-            self._status_container.write(f"▶ `{tool_name}` started at {datetime.now().strftime('%H:%M:%S')}")
 
     def on_end(self, tool_name: str, elapsed: float):
         start_time = self._start_times.pop(tool_name, None)
@@ -71,7 +86,11 @@ class ToolTracker:
             "Duration (s)": round(elapsed, 2),
         })
         if self._status_container:
-            self._status_container.write(f"✓ `{tool_name}` completed in {elapsed:.2f}s")
+            self._status_container.update(
+                label=f"Completed: {tool_name} ({elapsed:.2f}s) — {self._tool_count} tools so far",
+                state="running",
+            )
+        self._refresh_table()
 
     def get_dataframe(self) -> pd.DataFrame:
         if not self.entries:
@@ -82,6 +101,8 @@ class ToolTracker:
         self.entries.clear()
         self._start_times.clear()
         self._tool_count = 0
+        self._table_placeholder = None
+        self._total_placeholder = None
 
 
 # --- Sidebar ---
@@ -202,6 +223,12 @@ with analyze_tab:
                 )
                 tracker.set_status_container(status_container)
 
+                # Live progress table (visible during analysis)
+                st.subheader("Tool Execution Summary")
+                live_table = st.empty()
+                live_total = st.empty()
+                tracker.set_table_placeholder(live_table, live_total)
+
                 try:
                     prev_profile = st.session_state.get("active_profile")
                     if st.session_state.orchestrator is None or prev_profile != selected_profile:
@@ -223,6 +250,10 @@ with analyze_tab:
                     st.session_state.results = report_md
                     st.session_state.batch_results = {}
 
+                    # Clear the live progress table (data moves to Tool Execution Log tab)
+                    live_table.empty()
+                    live_total.empty()
+
                     # Build full report with tool execution log
                     tool_log_md = build_tool_log_markdown(tracker.entries)
                     full_report = report_md + tool_log_md
@@ -236,6 +267,8 @@ with analyze_tab:
                     status_container.update(label="Analysis complete!", state="complete", expanded=False)
                     st.toast(f"Reports auto-saved: {pdf_path}, {md_path}")
                 except Exception as e:
+                    live_table.empty()
+                    live_total.empty()
                     status_container.update(label="Analysis failed", state="error")
                     st.error(f"Analysis failed: {e}")
                     logger.exception("Analysis failed for %s", display)
@@ -288,6 +321,12 @@ with analyze_tab:
                     )
                     tracker.set_status_container(status_container)
 
+                    # Live progress table for this stock
+                    st.caption(f"**{display}** — Tool Execution Summary")
+                    batch_live_table = st.empty()
+                    batch_live_total = st.empty()
+                    tracker.set_table_placeholder(batch_live_table, batch_live_total)
+
                     # Re-create orchestrator per stock so hooks use the current tracker
                     st.session_state.orchestrator = create_orchestrator(
                         profile=selected_profile,
@@ -307,6 +346,10 @@ with analyze_tab:
                         report_md = str(response)
                         batch_results[display] = report_md
 
+                        # Clear live table (data moves to Tool Execution Log tab)
+                        batch_live_table.empty()
+                        batch_live_total.empty()
+
                         # Build full report with tool execution log
                         tool_log_md = build_tool_log_markdown(tracker.entries)
                         full_report = report_md + tool_log_md
@@ -318,6 +361,8 @@ with analyze_tab:
                         store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
                         status_container.update(label=f"{display} — complete!", state="complete", expanded=False)
                     except Exception as e:
+                        batch_live_table.empty()
+                        batch_live_total.empty()
                         batch_results[display] = f"Analysis failed: {e}"
                         status_container.update(label=f"{display} — failed", state="error")
                         logger.exception("Batch analysis failed for %s", display)
