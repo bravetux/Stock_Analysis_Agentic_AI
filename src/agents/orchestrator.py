@@ -6,6 +6,8 @@
 import concurrent.futures
 import logging
 import pathlib
+import time
+from typing import Callable
 from strands import Agent
 from strands.models import BedrockModel
 from strands.agent.conversation_manager import SummarizingConversationManager
@@ -118,11 +120,20 @@ def run_parallel_analysis(ticker: str, exchange: str) -> dict:
     return results
 
 
-def create_orchestrator(session_id: str | None = None, profile: str = DEFAULT_PROFILE) -> Agent:
+def create_orchestrator(
+    session_id: str | None = None,
+    profile: str = DEFAULT_PROFILE,
+    on_tool_start: Callable[[str], None] | None = None,
+    on_tool_end: Callable[[str, float], None] | None = None,
+) -> Agent:
     """
     Creates the Orchestrator Agent with tools filtered by the selected
     analysis profile, session persistence, conversation summarisation,
     and audit hooks.
+
+    Args:
+        on_tool_start: Optional callback(tool_name) called when a tool begins.
+        on_tool_end: Optional callback(tool_name, elapsed_seconds) called when a tool finishes.
     """
     effective_session_id = session_id or _DEFAULT_SESSION_ID
     active_profile = PROFILES.get(profile, PROFILES[DEFAULT_PROFILE])
@@ -211,14 +222,22 @@ def create_orchestrator(session_id: str | None = None, profile: str = DEFAULT_PR
 
     agent = Agent(**agent_kwargs)
 
-    # Audit hooks
+    # Audit hooks with progress tracking
+    _tool_start_times: dict[str, float] = {}
+
     def _before_tool(event: BeforeToolCallEvent) -> None:
         tool_name = event.tool_use.get("name", "unknown") if isinstance(event.tool_use, dict) else getattr(event.tool_use, "name", "unknown")
+        _tool_start_times[tool_name] = time.time()
         logger.info("TOOL_CALL_START tool=%s", tool_name)
+        if on_tool_start:
+            on_tool_start(tool_name)
 
     def _after_tool(event: AfterToolCallEvent) -> None:
         tool_name = event.tool_use.get("name", "unknown") if isinstance(event.tool_use, dict) else getattr(event.tool_use, "name", "unknown")
-        logger.info("TOOL_CALL_END tool=%s", tool_name)
+        elapsed = time.time() - _tool_start_times.pop(tool_name, time.time())
+        logger.info("TOOL_CALL_END tool=%s elapsed=%.2fs", tool_name, elapsed)
+        if on_tool_end:
+            on_tool_end(tool_name, elapsed)
 
     try:
         agent.add_hook(_before_tool, BeforeToolCallEvent)

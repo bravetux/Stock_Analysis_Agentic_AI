@@ -5,6 +5,8 @@
 
 import streamlit as st
 import logging
+import time
+from datetime import datetime
 from src.agents.orchestrator import create_orchestrator
 from src.tools.batch_tools import read_stocks_file
 from src.config.exchanges import detect_exchange, strip_prefix, get_display_ticker
@@ -12,6 +14,7 @@ from src.config.analysis_profiles import PROFILES, PROFILE_ORDER, DEFAULT_PROFIL
 from src.config.settings import settings
 from src.db.report_store import ReportStore
 from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,6 +35,54 @@ def get_report_store():
     return ReportStore(db_path=settings.db_path, cache_hours=settings.report_cache_hours)
 
 store = get_report_store()
+
+
+class ToolTracker:
+    """Tracks tool execution times for progress display."""
+
+    def __init__(self):
+        self.entries: list[dict] = []
+        self._start_times: dict[str, float] = {}
+        self._status_container = None
+        self._status_text = None
+        self._tool_count = 0
+
+    def set_status_container(self, container):
+        """Set the Streamlit status container for live updates."""
+        self._status_container = container
+
+    def on_start(self, tool_name: str):
+        self._start_times[tool_name] = time.time()
+        self._tool_count += 1
+        if self._status_container:
+            self._status_container.update(
+                label=f"Running: {tool_name} (tool #{self._tool_count})...",
+                state="running",
+            )
+            self._status_container.write(f"▶ `{tool_name}` started at {datetime.now().strftime('%H:%M:%S')}")
+
+    def on_end(self, tool_name: str, elapsed: float):
+        start_time = self._start_times.pop(tool_name, None)
+        started_at = datetime.fromtimestamp(start_time).strftime("%H:%M:%S") if start_time else "—"
+        self.entries.append({
+            "Tool": tool_name,
+            "Started": started_at,
+            "Completed": datetime.now().strftime("%H:%M:%S"),
+            "Duration (s)": round(elapsed, 2),
+        })
+        if self._status_container:
+            self._status_container.write(f"✓ `{tool_name}` completed in {elapsed:.2f}s")
+
+    def get_dataframe(self) -> pd.DataFrame:
+        if not self.entries:
+            return pd.DataFrame(columns=["Tool", "Started", "Completed", "Duration (s)"])
+        return pd.DataFrame(self.entries)
+
+    def reset(self):
+        self.entries.clear()
+        self._start_times.clear()
+        self._tool_count = 0
+
 
 # --- Sidebar ---
 with st.sidebar:
@@ -105,6 +156,10 @@ if "results" not in st.session_state:
     st.session_state.results = None
 if "batch_results" not in st.session_state:
     st.session_state.batch_results = {}
+if "tool_tracker" not in st.session_state:
+    st.session_state.tool_tracker = ToolTracker()
+if "batch_trackers" not in st.session_state:
+    st.session_state.batch_trackers = {}
 
 # --- Top-level Tabs ---
 analyze_tab, history_tab = st.tabs(["Analyze", "History"])
@@ -139,32 +194,46 @@ with analyze_tab:
                     f"Analyzing **{display}** on **{exchange}** | "
                     f"Level: **{profile.label}** | {max_queries} news queries"
                 )
-                with st.spinner(f"Running {profile.label.lower()}-level analysis for {display}..."):
-                    try:
-                        prev_profile = st.session_state.get("active_profile")
-                        if st.session_state.orchestrator is None or prev_profile != selected_profile:
-                            st.session_state.orchestrator = create_orchestrator(profile=selected_profile)
-                            st.session_state.active_profile = selected_profile
+                tracker = st.session_state.tool_tracker
+                tracker.reset()
+                status_container = st.status(
+                    f"Running {profile.label.lower()}-level analysis for {display}...",
+                    expanded=True,
+                )
+                tracker.set_status_container(status_container)
 
-                        agent = st.session_state.orchestrator
-                        prompt = (
-                            f"Analyze the stock {display} on {exchange} exchange. "
-                            f"Use up to {max_queries} news search queries.\n\n"
-                            f"{profile.prompt_instructions}"
+                try:
+                    prev_profile = st.session_state.get("active_profile")
+                    if st.session_state.orchestrator is None or prev_profile != selected_profile:
+                        st.session_state.orchestrator = create_orchestrator(
+                            profile=selected_profile,
+                            on_tool_start=tracker.on_start,
+                            on_tool_end=tracker.on_end,
                         )
-                        response = agent(prompt)
-                        report_md = str(response)
-                        st.session_state.results = report_md
-                        st.session_state.batch_results = {}
+                        st.session_state.active_profile = selected_profile
 
-                        # Save to DB and auto-save PDF
-                        pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
-                        pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-                        store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
-                        st.toast(f"PDF auto-saved: {pdf_path}")
-                    except Exception as e:
-                        st.error(f"Analysis failed: {e}")
-                        logger.exception("Analysis failed for %s", display)
+                    agent = st.session_state.orchestrator
+                    prompt = (
+                        f"Analyze the stock {display} on {exchange} exchange. "
+                        f"Use up to {max_queries} news search queries.\n\n"
+                        f"{profile.prompt_instructions}"
+                    )
+                    response = agent(prompt)
+                    report_md = str(response)
+                    st.session_state.results = report_md
+                    st.session_state.batch_results = {}
+
+                    # Save to DB and auto-save PDF
+                    pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
+                    pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+                    store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
+
+                    status_container.update(label="Analysis complete!", state="complete", expanded=False)
+                    st.toast(f"PDF auto-saved: {pdf_path}")
+                except Exception as e:
+                    status_container.update(label="Analysis failed", state="error")
+                    st.error(f"Analysis failed: {e}")
+                    logger.exception("Analysis failed for %s", display)
 
         else:  # Batch mode
             if not uploaded_file:
@@ -189,14 +258,8 @@ with analyze_tab:
                 )
 
                 batch_results = {}
+                batch_trackers = {}
                 progress_bar = st.progress(0, text="Starting batch analysis...")
-
-                prev_profile = st.session_state.get("active_profile")
-                if st.session_state.orchestrator is None or prev_profile != selected_profile:
-                    st.session_state.orchestrator = create_orchestrator(profile=selected_profile)
-                    st.session_state.active_profile = selected_profile
-
-                agent = st.session_state.orchestrator
 
                 for i, stock in enumerate(stocks):
                     ticker = stock["ticker"]
@@ -212,7 +275,22 @@ with analyze_tab:
                         if cached:
                             batch_results[display] = cached["report_markdown"]
                             continue
-                        # Fall through to fresh analysis if no cache
+
+                    tracker = ToolTracker()
+                    status_container = st.status(
+                        f"Analyzing {display} ({i+1}/{len(stocks)})...",
+                        expanded=True,
+                    )
+                    tracker.set_status_container(status_container)
+
+                    # Re-create orchestrator per stock so hooks use the current tracker
+                    st.session_state.orchestrator = create_orchestrator(
+                        profile=selected_profile,
+                        on_tool_start=tracker.on_start,
+                        on_tool_end=tracker.on_end,
+                    )
+                    st.session_state.active_profile = selected_profile
+                    agent = st.session_state.orchestrator
 
                     try:
                         prompt = (
@@ -228,12 +306,17 @@ with analyze_tab:
                         pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
                         pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
                         store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
+                        status_container.update(label=f"{display} — complete!", state="complete", expanded=False)
                     except Exception as e:
                         batch_results[display] = f"Analysis failed: {e}"
+                        status_container.update(label=f"{display} — failed", state="error")
                         logger.exception("Batch analysis failed for %s", display)
+
+                    batch_trackers[display] = tracker
 
                 progress_bar.progress(1.0, text="Batch analysis complete!")
                 st.session_state.batch_results = batch_results
+                st.session_state.batch_trackers = batch_trackers
                 st.session_state.results = None
             except Exception as e:
                 st.error(f"Batch analysis failed: {e}")
@@ -246,10 +329,20 @@ with analyze_tab:
         st.divider()
         report_md = st.session_state.results
 
-        tab1, tab2 = st.tabs(["Report", "Raw Output"])
+        tab1, tab2, tab3 = st.tabs(["Report", "Tool Execution Log", "Raw Output"])
         with tab1:
             st.markdown(report_md)
         with tab2:
+            tracker = st.session_state.tool_tracker
+            df = tracker.get_dataframe()
+            if not df.empty:
+                st.caption(f"{len(df)} tools executed")
+                st.dataframe(df, use_container_width=True, hide_index=True)
+                total_time = df["Duration (s)"].sum()
+                st.metric("Total Tool Execution Time", f"{total_time:.2f}s")
+            else:
+                st.info("No tool execution data available (cached report).")
+        with tab3:
             st.code(report_md, language="markdown")
 
         col1, col2 = st.columns(2)
@@ -276,7 +369,22 @@ with analyze_tab:
 
         for display_ticker, report_md in st.session_state.batch_results.items():
             with st.expander(f"📊 {display_ticker}", expanded=False):
-                st.markdown(report_md)
+                report_tab, log_tab = st.tabs(["Report", "Tool Execution Log"])
+                with report_tab:
+                    st.markdown(report_md)
+                with log_tab:
+                    batch_tracker = st.session_state.batch_trackers.get(display_ticker)
+                    if batch_tracker:
+                        df = batch_tracker.get_dataframe()
+                        if not df.empty:
+                            st.caption(f"{len(df)} tools executed")
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            total_time = df["Duration (s)"].sum()
+                            st.metric("Total Tool Execution Time", f"{total_time:.2f}s")
+                        else:
+                            st.info("No tool execution data.")
+                    else:
+                        st.info("No tool execution data (cached report).")
 
                 col1, col2 = st.columns(2)
                 safe_name = display_ticker.replace(":", "_")

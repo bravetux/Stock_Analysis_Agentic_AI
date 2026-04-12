@@ -10,7 +10,9 @@ Or for CLI mode: python main.py <ticker>
 """
 
 import sys
+import time
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -55,6 +57,36 @@ def main():
 
     store = ReportStore(db_path=settings.db_path, cache_hours=settings.report_cache_hours)
 
+    # Tool progress tracking for CLI
+    tool_log: list[dict] = []
+    _tool_starts: dict[str, float] = {}
+
+    def _on_tool_start(tool_name: str):
+        _tool_starts[tool_name] = time.time()
+        print(f"  ▶ {tool_name} ...", flush=True)
+
+    def _on_tool_end(tool_name: str, elapsed: float):
+        start_ts = _tool_starts.pop(tool_name, None)
+        started = datetime.fromtimestamp(start_ts).strftime("%H:%M:%S") if start_ts else "—"
+        completed = datetime.now().strftime("%H:%M:%S")
+        tool_log.append({"Tool": tool_name, "Started": started, "Completed": completed, "Duration (s)": round(elapsed, 2)})
+        print(f"  ✓ {tool_name} ({elapsed:.2f}s)", flush=True)
+
+    def _print_tool_summary():
+        if not tool_log:
+            return
+        print(f"\n{'─'*60}")
+        print("Tool Execution Summary")
+        print(f"{'─'*60}")
+        print(f"{'Tool':<35} {'Started':<10} {'Completed':<10} {'Duration':>8}")
+        print(f"{'─'*35} {'─'*10} {'─'*10} {'─'*8}")
+        for entry in tool_log:
+            print(f"{entry['Tool']:<35} {entry['Started']:<10} {entry['Completed']:<10} {entry['Duration (s)']:>7.2f}s")
+        total = sum(e["Duration (s)"] for e in tool_log)
+        print(f"{'─'*60}")
+        print(f"{'Total':<35} {'':10} {'':10} {total:>7.2f}s")
+        print(f"{'─'*60}\n")
+
     def analyze_single(ticker_input: str, exchange_override: str | None = None):
         """Analyze a single stock, save to DB, optionally export PDF."""
         ticker = strip_prefix(ticker_input)
@@ -79,7 +111,12 @@ def main():
                 print(f"No cached report for {display}. Running fresh analysis...")
 
         print(f"Analyzing {display} on {exchange}...")
-        agent = create_orchestrator(profile=args.profile)
+        tool_log.clear()
+        agent = create_orchestrator(
+            profile=args.profile,
+            on_tool_start=_on_tool_start,
+            on_tool_end=_on_tool_end,
+        )
         response = agent(
             f"Analyze the stock {display} on {exchange} exchange. "
             f"Use up to {profile.news_queries} news search queries.\n\n"
@@ -87,6 +124,7 @@ def main():
         )
         report_md = str(response)
         print(report_md)
+        _print_tool_summary()
 
         pdf_path = None
         if args.pdf:
