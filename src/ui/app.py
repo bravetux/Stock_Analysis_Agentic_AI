@@ -125,7 +125,7 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
         if tracker.tool_count > last_count:
             df = tracker.get_dataframe()
             if not df.empty:
-                table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+                table_placeholder.dataframe(df, width="stretch", hide_index=True)
                 total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
             last_count = tracker.tool_count
 
@@ -136,7 +136,7 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
     # Final table update
     df = tracker.get_dataframe()
     if not df.empty:
-        table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+        table_placeholder.dataframe(df, width="stretch", hide_index=True)
         total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
 
     if result_holder["error"]:
@@ -214,7 +214,7 @@ with st.sidebar:
     st.subheader("Data Source")
     data_source = st.radio("Report Source", ["Fetch Fresh", "Use Cached"], index=0)
 
-    analyze_btn = st.button("Analyze", type="primary", use_container_width=True)
+    analyze_btn = st.button("Analyze", type="primary", width="stretch")
 
 # --- Session State ---
 if "orchestrator" not in st.session_state:
@@ -403,7 +403,7 @@ with analyze_tab:
             df = tracker.get_dataframe()
             if not df.empty:
                 st.caption(f"{len(df)} tools executed")
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)
                 total_time = df["Duration (s)"].sum()
                 st.metric("Total Tool Execution Time", f"{total_time:.2f}s")
             else:
@@ -444,7 +444,7 @@ with analyze_tab:
                         df = batch_tracker.get_dataframe()
                         if not df.empty:
                             st.caption(f"{len(df)} tools executed")
-                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            st.dataframe(df, width="stretch", hide_index=True)
                             total_time = df["Duration (s)"].sum()
                             st.metric("Total Tool Execution Time", f"{total_time:.2f}s")
                         else:
