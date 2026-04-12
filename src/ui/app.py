@@ -14,7 +14,10 @@ from src.config.exchanges import detect_exchange, strip_prefix, get_display_tick
 from src.config.analysis_profiles import PROFILES, PROFILE_ORDER, DEFAULT_PROFILE
 from src.config.settings import settings
 from src.db.report_store import ReportStore
-from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk, batch_report_to_pdf, save_batch_pdf_to_disk
+from src.ui.pdf_export import (
+    markdown_to_pdf, save_pdf_to_disk, save_md_to_disk,
+    batch_report_to_pdf, save_batch_pdf_to_disk, consolidated_table_to_xlsx,
+)
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -473,10 +476,11 @@ with analyze_tab:
                             )
                             summary_prompt = (
                                 "Based on the following stock analysis reports, create a single consolidated summary table in markdown format.\n\n"
-                                "The table MUST have these exact columns:\n"
-                                "| Stock | Current Price | 200DMA Trend | MACD Status | MACD Signal | EMA Status | EMA Trend | "
+                                "The table MUST have these exact columns (in this order):\n"
+                                "| S.No | Stock | Current Price | 200DMA Trend | MACD Status | MACD Signal | EMA Status | EMA Trend | "
                                 "News Sentiment | PE Ratio | PE Assessment | ROE | ROE Assessment | ROCE Assessment | Debt Status | "
                                 "Dividend Yield | OPM Margin Trend | OPM Assessment | Risk Level | Composite Score | Signal | Target Price |\n\n"
+                                "Number each stock starting from 1 in the S.No column.\n"
                                 "Extract the values from each stock report below. If a value is not available, put 'N/A'.\n"
                                 "Only output the markdown table, nothing else.\n\n"
                                 f"{all_reports_text}"
@@ -487,10 +491,18 @@ with analyze_tab:
                             logger.warning("Failed to generate consolidated table: %s", e)
                             consolidated_table = "*Could not generate consolidated table.*"
 
-                    # Auto-save consolidated batch PDF
-                    batch_pdf = batch_report_to_pdf(successful_reports, consolidated_table, selected_profile)
+                    # Auto-save batch PDF (reports only, no consolidated table)
+                    batch_pdf = batch_report_to_pdf(successful_reports, selected_profile)
                     batch_pdf_path = save_batch_pdf_to_disk(batch_pdf, settings.reports_dir)
-                    st.toast(f"Consolidated batch PDF saved: {batch_pdf_path}")
+                    st.toast(f"Batch PDF saved: {batch_pdf_path}")
+
+                    # Auto-save consolidated table to XLSX
+                    if consolidated_table and not consolidated_table.startswith("*"):
+                        try:
+                            xlsx_path, _ = consolidated_table_to_xlsx(consolidated_table, settings.reports_dir)
+                            st.toast(f"Consolidated XLSX saved: {xlsx_path}")
+                        except Exception as e:
+                            logger.warning("Failed to save XLSX: %s", e)
 
                 st.session_state.consolidated_table = consolidated_table
                 st.session_state.batch_results = batch_results
@@ -560,25 +572,59 @@ with analyze_tab:
         st.divider()
         st.subheader(f"Batch Results — {len(st.session_state.batch_results)} stocks")
 
-        # Consolidated Summary Table
+        # Consolidated Summary Table — sortable/filterable dataframe + XLSX download
         if st.session_state.consolidated_table:
             with st.expander("Consolidated Report Table", expanded=True):
-                st.markdown(st.session_state.consolidated_table)
+                table_md = st.session_state.consolidated_table
+                # Parse markdown table into DataFrame for sorting/filtering
+                import re
+                table_lines = [l.strip() for l in table_md.strip().splitlines() if l.strip().startswith("|")]
+                if len(table_lines) >= 2:
+                    def _parse_md_row(line):
+                        cells = [c.strip() for c in line.split("|")]
+                        if cells and cells[0] == "":
+                            cells = cells[1:]
+                        if cells and cells[-1] == "":
+                            cells = cells[:-1]
+                        return [re.sub(r"\*\*(.*?)\*\*", r"\1", c) for c in cells]
 
-                # Download consolidated batch PDF
-                successful = {k: v for k, v in st.session_state.batch_results.items()
-                              if not v.startswith("Analysis failed")}
-                if successful:
-                    batch_pdf = batch_report_to_pdf(
-                        successful, st.session_state.consolidated_table, selected_profile,
+                    headers = _parse_md_row(table_lines[0])
+                    rows = []
+                    for line in table_lines[1:]:
+                        if re.match(r"^\|[\s\-:|]+\|$", line):
+                            continue
+                        rows.append(_parse_md_row(line))
+
+                    df_consolidated = pd.DataFrame(rows, columns=headers[:len(rows[0])] if rows else headers)
+
+                    # Column filter
+                    all_cols = df_consolidated.columns.tolist()
+                    selected_cols = st.multiselect(
+                        "Show columns", all_cols, default=all_cols, key="consolidated_cols",
                     )
+                    if selected_cols:
+                        st.dataframe(
+                            df_consolidated[selected_cols],
+                            width="stretch", hide_index=True,
+                            column_config={col: st.column_config.TextColumn(col) for col in selected_cols},
+                        )
+                    else:
+                        st.dataframe(df_consolidated, width="stretch", hide_index=True)
+                else:
+                    st.markdown(table_md)
+
+                # XLSX download
+                try:
+                    _, xlsx_bytes = consolidated_table_to_xlsx(table_md, settings.reports_dir)
                     st.download_button(
-                        label="Download Consolidated Batch PDF",
-                        data=batch_pdf,
-                        file_name="batch_consolidated_report.pdf",
-                        mime="application/pdf",
-                        key="batch_pdf_dl",
+                        label="Download Consolidated XLSX",
+                        data=xlsx_bytes,
+                        file_name="consolidated_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="consolidated_xlsx_dl",
                     )
+                except Exception:
+                    pass
 
         for display_ticker, report_md in st.session_state.batch_results.items():
             with st.expander(f"📊 {display_ticker}", expanded=False):

@@ -43,9 +43,10 @@ dependencies = [
     # Utilities
     "python-dateutil>=2.9",
     "pyyaml>=6.0",
-    # PDF Export
+    # PDF Export & Reports
     "markdown2>=2.4",
     "xhtml2pdf>=0.2.11",
+    "openpyxl>=3.1",
 ]
 
 [dependency-groups]

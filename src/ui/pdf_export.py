@@ -162,29 +162,17 @@ def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) ->
 
 def batch_report_to_pdf(
     reports: dict[str, str],
-    consolidated_table_md: str,
     profile: str,
 ) -> bytes:
-    """Convert batch reports + consolidated table to a single PDF.
+    """Convert batch reports to a single PDF (no consolidated table — that goes to XLSX).
 
     Args:
         reports: Dict of display_ticker -> report_markdown.
-        consolidated_table_md: Markdown for the consolidated summary table.
         profile: Analysis profile name.
     """
     _register_fonts()
 
     sections = []
-
-    # Consolidated summary table first
-    if consolidated_table_md:
-        table_html = markdown2.markdown(
-            _replace_rupee_for_pdf(consolidated_table_md),
-            extras=["tables", "fenced-code-blocks"],
-        )
-        sections.append(f"<h2>Consolidated Summary</h2>\n{table_html}\n<hr/>")
-
-    # Individual reports
     for display_ticker, report_md in reports.items():
         report_html = markdown2.markdown(
             _replace_rupee_for_pdf(report_md),
@@ -254,3 +242,95 @@ def save_md_to_disk(report_md: str, ticker: str, exchange: str, reports_dir: str
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report_md)
     return filepath
+
+
+def consolidated_table_to_xlsx(table_md: str, reports_dir: str = "reports") -> tuple[str, bytes]:
+    """Parse a markdown table and export to XLSX. Returns (filepath, xlsx_bytes)."""
+    import re
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    lines = [l.strip() for l in table_md.strip().splitlines() if l.strip().startswith("|")]
+    if len(lines) < 2:
+        raise ValueError("No valid markdown table found in consolidated output")
+
+    # Parse header and rows
+    def parse_row(line: str) -> list[str]:
+        cells = [c.strip() for c in line.split("|")]
+        # Remove empty first/last from leading/trailing |
+        if cells and cells[0] == "":
+            cells = cells[1:]
+        if cells and cells[-1] == "":
+            cells = cells[:-1]
+        # Strip bold markers
+        return [re.sub(r"\*\*(.*?)\*\*", r"\1", c) for c in cells]
+
+    headers = parse_row(lines[0])
+    # Skip separator row (---|---|...)
+    data_rows = []
+    for line in lines[1:]:
+        if re.match(r"^\|[\s\-:|]+\|$", line):
+            continue
+        data_rows.append(parse_row(line))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Consolidated Report"
+
+    # Styles
+    header_font = Font(name="Consolas", bold=True, color="FFFFFF", size=10)
+    header_fill = PatternFill(start_color="0F3460", end_color="0F3460", fill_type="solid")
+    cell_font = Font(name="Consolas", size=9)
+    even_fill = PatternFill(start_color="E8F4F8", end_color="E8F4F8", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="DDDDDD"),
+        right=Side(style="thin", color="DDDDDD"),
+        top=Side(style="thin", color="DDDDDD"),
+        bottom=Side(style="thin", color="DDDDDD"),
+    )
+
+    # Title row
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(len(headers), 1))
+    title_cell = ws.cell(row=1, column=1, value=f"Consolidated Stock Analysis — {datetime.now().strftime('%d %b %Y, %I:%M %p')}")
+    title_cell.font = Font(name="Consolas", bold=True, size=12, color="0F3460")
+    title_cell.alignment = Alignment(horizontal="center")
+
+    # Headers (row 3)
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        cell.border = thin_border
+
+    # Data rows
+    for row_idx, row_data in enumerate(data_rows, 4):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.font = cell_font
+            cell.border = thin_border
+            cell.alignment = Alignment(wrap_text=True)
+            if (row_idx - 4) % 2 == 1:
+                cell.fill = even_fill
+
+    # Auto-width columns
+    for col_idx in range(1, len(headers) + 1):
+        max_len = len(headers[col_idx - 1]) if col_idx <= len(headers) else 8
+        for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=col_idx, max_col=col_idx):
+            for cell in row:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 2, 30)
+
+    # Save to bytes and file
+    os.makedirs(reports_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    filename = f"CONSOLIDATED_REPORT_{timestamp}.xlsx"
+    filepath = os.path.join(reports_dir, filename)
+    wb.save(filepath)
+
+    xlsx_buffer = io.BytesIO()
+    wb.save(xlsx_buffer)
+    xlsx_bytes = xlsx_buffer.getvalue()
+
+    return filepath, xlsx_bytes
