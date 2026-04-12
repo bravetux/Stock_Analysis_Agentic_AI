@@ -62,6 +62,23 @@ class ReportStore:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
             return dict(row) if row else None
 
+    def get_previous_report(self, ticker: str, exchange: str, exclude_id: int | None = None) -> dict | None:
+        """Get the second most recent report (the one before the latest), for comparison."""
+        self.cleanup_expired()
+        with self._connect() as conn:
+            if exclude_id:
+                row = conn.execute(
+                    "SELECT * FROM reports WHERE ticker = ? AND exchange = ? AND id != ? ORDER BY analyzed_at DESC LIMIT 1",
+                    (ticker.upper(), exchange.upper(), exclude_id),
+                ).fetchone()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM reports WHERE ticker = ? AND exchange = ? ORDER BY analyzed_at DESC LIMIT 2",
+                    (ticker.upper(), exchange.upper()),
+                ).fetchall()
+                row = rows[1] if len(rows) >= 2 else None
+            return dict(row) if row else None
+
     def search_tickers(self, query: str) -> list[str]:
         with self._connect() as conn:
             rows = conn.execute(

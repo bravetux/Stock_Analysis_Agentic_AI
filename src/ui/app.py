@@ -51,10 +51,8 @@ class ToolTracker:
         self._start_times: dict[str, float] = {}
         self.tool_count: int = 0
         self.current_tool: str | None = None
-        self.done: bool = False
-        # Stream buffer — accumulates text chunks from callback_handler
         self.stream_chunks: list[str] = []
-        self._stream_version: int = 0  # bumped on each new chunk for polling
+        self._stream_version: int = 0
 
     def on_start(self, tool_name: str):
         self._start_times[tool_name] = time.time()
@@ -73,7 +71,6 @@ class ToolTracker:
         self.current_tool = None
 
     def callback_handler(self, **kwargs):
-        """Strands callback handler — captures streaming text and tool info."""
         data = kwargs.get("data", "")
         if data:
             self.stream_chunks.append(data)
@@ -92,23 +89,30 @@ class ToolTracker:
         self._start_times.clear()
         self.tool_count = 0
         self.current_tool = None
-        self.done = False
         self.stream_chunks.clear()
         self._stream_version = 0
 
 
-def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, status_label: str):
-    """Run agent in a background thread while polling the tracker to update Streamlit UI.
+def run_agent_with_live_progress(
+    agent, prompt: str, tracker: ToolTracker, status_label: str,
+    report_stream_placeholder=None,
+    report_stream_prefix: str = "",
+):
+    """Run agent in a background thread while polling tracker for live UI updates.
 
-    Shows two live sections during analysis:
-    1. Tool Execution Summary — table of tool timings
-    2. Stream Data — live markdown stream from the LLM
+    Args:
+        agent: The orchestrator agent.
+        prompt: Analysis prompt.
+        tracker: ToolTracker to collect timing + stream data.
+        status_label: Label for the st.status widget.
+        report_stream_placeholder: Optional st.empty() to stream live report into.
+        report_stream_prefix: Markdown to prepend before the current stream
+            (used in batch mode to show previously completed reports).
 
     Returns the agent response string. Raises on failure.
     """
     result_holder: dict = {"response": None, "error": None}
 
-    # Set the agent's callback handler to our tracker so we capture stream chunks
     original_handler = agent.callback_handler
     agent.callback_handler = tracker.callback_handler
 
@@ -122,24 +126,17 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
 
     thread = threading.Thread(target=_run, daemon=True)
 
-    # UI placeholders
+    # Inline UI: status + tool table
     status_container = st.status(status_label, expanded=True)
-
-    tool_col, stream_col = st.columns(2)
-    with tool_col:
-        st.subheader("Tool Execution Summary")
-        table_placeholder = st.empty()
-        total_placeholder = st.empty()
-    with stream_col:
-        st.subheader("Stream Data")
-        stream_placeholder = st.empty()
+    st.caption("Tool Execution Summary")
+    table_placeholder = st.empty()
+    total_placeholder = st.empty()
 
     thread.start()
     last_count = 0
     last_stream_ver = 0
 
     while thread.is_alive():
-        # Update status with current tool
         if tracker.current_tool:
             status_container.update(
                 label=f"Running: {tracker.current_tool} (tool #{tracker.tool_count})...",
@@ -153,7 +150,6 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
                     state="running",
                 )
 
-        # Update tool table if new entries
         if tracker.tool_count > last_count:
             df = tracker.get_dataframe()
             if not df.empty:
@@ -161,9 +157,9 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
                 total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
             last_count = tracker.tool_count
 
-        # Update stream data if new chunks
-        if tracker._stream_version > last_stream_ver:
-            stream_placeholder.markdown(tracker.get_stream_text())
+        # Stream live report text to Report-Stream tab if placeholder provided
+        if report_stream_placeholder and tracker._stream_version > last_stream_ver:
+            report_stream_placeholder.markdown(report_stream_prefix + tracker.get_stream_text())
             last_stream_ver = tracker._stream_version
 
         time.sleep(0.5)
@@ -176,19 +172,32 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
         table_placeholder.dataframe(df, width="stretch", hide_index=True)
         total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
 
-    stream_placeholder.markdown(tracker.get_stream_text())
-
     if result_holder["error"]:
         status_container.update(label="Analysis failed", state="error")
         raise result_holder["error"]
 
     status_container.update(label="Analysis complete!", state="complete", expanded=False)
-    # Clear live displays (data moves to tabs after completion)
     table_placeholder.empty()
     total_placeholder.empty()
-    stream_placeholder.empty()
 
     return result_holder["response"]
+
+
+def build_comparison_markdown(current_md: str, previous: dict) -> str:
+    """Build a markdown section comparing current report with a previous one."""
+    prev_date = previous["analyzed_at"]
+    prev_profile = previous["profile"]
+    prev_md = previous["report_markdown"]
+
+    lines = [
+        f"### Previous Report ({prev_date}, {prev_profile})",
+        "",
+        prev_md,
+        "",
+        "---",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 # --- Sidebar ---
@@ -267,6 +276,8 @@ if "tool_tracker" not in st.session_state:
     st.session_state.tool_tracker = ToolTracker()
 if "batch_trackers" not in st.session_state:
     st.session_state.batch_trackers = {}
+if "batch_comparisons" not in st.session_state:
+    st.session_state.batch_comparisons = {}
 
 # --- Top-level Tabs ---
 analyze_tab, history_tab = st.tabs(["Analyze", "History"])
@@ -286,7 +297,6 @@ with analyze_tab:
                 exchange = detect_exchange(ticker_input).value
             display = get_display_ticker(ticker_input)
 
-            # Check cached first if requested
             if data_source == "Use Cached":
                 cached = store.get_latest_report(ticker, exchange)
                 if cached:
@@ -364,9 +374,19 @@ with analyze_tab:
                     f"Level: **{profile.label}** | {max_queries} queries each"
                 )
 
+                # Batch layout: Live Analysis on top, Report-Stream tab below
                 batch_results = {}
                 batch_trackers = {}
+                batch_comparisons = {}
                 progress_bar = st.progress(0, text="Starting batch analysis...")
+
+                # Report-Stream placeholder — accumulates completed reports
+                st.subheader("Report Stream")
+                report_stream_placeholder = st.empty()
+                accumulated_reports = ""
+
+                st.divider()
+                st.subheader("Live Analysis")
 
                 for i, stock in enumerate(stocks):
                     ticker = stock["ticker"]
@@ -381,11 +401,14 @@ with analyze_tab:
                         cached = store.get_latest_report(ticker, exchange)
                         if cached:
                             batch_results[display] = cached["report_markdown"]
+                            accumulated_reports += f"## {display} (cached)\n\n{cached['report_markdown']}\n\n---\n\n"
+                            report_stream_placeholder.markdown(accumulated_reports)
                             continue
 
-                    tracker = ToolTracker()
+                    # Fetch previous report for comparison BEFORE saving new one
+                    prev_report = store.get_latest_report(ticker, exchange)
 
-                    # Re-create orchestrator per stock so hooks use the current tracker
+                    tracker = ToolTracker()
                     st.session_state.orchestrator = create_orchestrator(
                         profile=selected_profile,
                         on_tool_start=tracker.on_start,
@@ -403,19 +426,33 @@ with analyze_tab:
                         response = run_agent_with_live_progress(
                             agent, prompt, tracker,
                             status_label=f"Analyzing {display} ({i+1}/{len(stocks)})...",
+                            report_stream_placeholder=report_stream_placeholder,
+                            report_stream_prefix=accumulated_reports + f"## {display}\n\n",
                         )
                         report_md = str(response)
                         batch_results[display] = report_md
 
-                        # Auto-save PDF and MD
+                        # Auto-save and store in DB
                         pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
                         pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
                         save_md_to_disk(report_md, ticker, exchange, settings.reports_dir)
                         store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
+
+                        # Accumulate completed report into Report-Stream
+                        accumulated_reports += f"## {display}\n\n{report_md}\n\n---\n\n"
+                        report_stream_placeholder.markdown(accumulated_reports)
+
+                        # Store comparison data if previous report exists
+                        if prev_report:
+                            batch_comparisons[display] = prev_report
+
                     except Exception as e:
                         import traceback
                         err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
-                        batch_results[display] = f"Analysis failed: {err_msg}\n\n```\n{traceback.format_exc()}\n```"
+                        error_text = f"Analysis failed: {err_msg}"
+                        batch_results[display] = error_text
+                        accumulated_reports += f"## {display}\n\n{error_text}\n\n---\n\n"
+                        report_stream_placeholder.markdown(accumulated_reports)
                         logger.exception("Batch analysis failed for %s", display)
 
                     batch_trackers[display] = tracker
@@ -423,6 +460,7 @@ with analyze_tab:
                 progress_bar.progress(1.0, text="Batch analysis complete!")
                 st.session_state.batch_results = batch_results
                 st.session_state.batch_trackers = batch_trackers
+                st.session_state.batch_comparisons = batch_comparisons
                 st.session_state.results = None
             except Exception as e:
                 st.error(f"Batch analysis failed: {e}")
@@ -438,6 +476,13 @@ with analyze_tab:
         tab1, tab2, tab3, tab4 = st.tabs(["Report", "Stream Data", "Tool Execution Log", "Raw Output"])
         with tab1:
             st.markdown(report_md)
+
+            # Comparison with previous report
+            # Try to find ticker/exchange from session state context
+            tracker = st.session_state.tool_tracker
+            if hasattr(st.session_state, "active_profile"):
+                # Check for previous report in DB
+                pass  # Single stock comparison shown below
         with tab2:
             tracker = st.session_state.tool_tracker
             stream_text = tracker.get_stream_text()
@@ -482,20 +527,20 @@ with analyze_tab:
 
         for display_ticker, report_md in st.session_state.batch_results.items():
             with st.expander(f"📊 {display_ticker}", expanded=False):
-                report_tab, stream_tab, log_tab = st.tabs(["Report", "Stream Data", "Tool Execution Log"])
-                with report_tab:
+                parts = display_ticker.split(":")
+                ex = parts[0] if len(parts) == 2 else "EX"
+                tk = parts[1] if len(parts) == 2 else parts[0]
+
+                has_comparison = display_ticker in st.session_state.batch_comparisons
+                tab_names = ["Report", "Tool Execution Log"]
+                if has_comparison:
+                    tab_names.append("Comparison")
+
+                tabs = st.tabs(tab_names)
+
+                with tabs[0]:
                     st.markdown(report_md)
-                with stream_tab:
-                    batch_tracker = st.session_state.batch_trackers.get(display_ticker)
-                    if batch_tracker:
-                        stream_text = batch_tracker.get_stream_text()
-                        if stream_text:
-                            st.markdown(stream_text)
-                        else:
-                            st.info("No stream data.")
-                    else:
-                        st.info("No stream data (cached report).")
-                with log_tab:
+                with tabs[1]:
                     batch_tracker = st.session_state.batch_trackers.get(display_ticker)
                     if batch_tracker:
                         df = batch_tracker.get_dataframe()
@@ -509,6 +554,19 @@ with analyze_tab:
                     else:
                         st.info("No tool execution data (cached report).")
 
+                if has_comparison:
+                    with tabs[2]:
+                        prev = st.session_state.batch_comparisons[display_ticker]
+                        st.caption(f"Comparing with previous report from **{prev['analyzed_at']}** ({prev['profile']})")
+
+                        col_cur, col_prev = st.columns(2)
+                        with col_cur:
+                            st.markdown("#### Current Report")
+                            st.markdown(report_md)
+                        with col_prev:
+                            st.markdown(f"#### Previous Report ({prev['analyzed_at']})")
+                            st.markdown(prev["report_markdown"])
+
                 col1, col2 = st.columns(2)
                 safe_name = display_ticker.replace(":", "_")
                 with col1:
@@ -520,9 +578,6 @@ with analyze_tab:
                         key=f"md_{display_ticker}",
                     )
                 with col2:
-                    parts = display_ticker.split(":")
-                    ex = parts[0] if len(parts) == 2 else "EX"
-                    tk = parts[1] if len(parts) == 2 else parts[0]
                     pdf_bytes = markdown_to_pdf(report_md, tk, ex, selected_profile)
                     st.download_button(
                         label="Download PDF",
@@ -535,6 +590,7 @@ with analyze_tab:
 # === HISTORY TAB ===
 with history_tab:
     st.subheader("Report History")
+    st.caption(f"Reports retained for {settings.report_cache_hours} hours ({settings.report_cache_hours // 24} days). Set REPORT_CACHE_HOURS=0 to keep forever.")
     search_query = st.text_input("Search ticker", placeholder="e.g., RELIANCE, AAPL")
 
     if search_query:
@@ -550,6 +606,37 @@ with history_tab:
                 else:
                     st.caption(f"Found {len(history)} report(s) for {selected_ticker}")
 
+                    # Comparison selector
+                    if len(history) >= 2:
+                        st.subheader("Compare Reports")
+                        compare_options = [
+                            f"#{r['id']} — {r['exchange']}:{r['ticker']} | {r['profile']} | {r['analyzed_at']}"
+                            for r in history
+                        ]
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            sel_a = st.selectbox("Report A (newer)", compare_options, index=0, key="cmp_a")
+                        with col_b:
+                            sel_b = st.selectbox("Report B (older)", compare_options, index=1, key="cmp_b")
+
+                        if st.button("Compare", key="compare_btn"):
+                            idx_a = compare_options.index(sel_a)
+                            idx_b = compare_options.index(sel_b)
+                            report_a = history[idx_a]
+                            report_b = history[idx_b]
+
+                            st.divider()
+                            col_left, col_right = st.columns(2)
+                            with col_left:
+                                st.markdown(f"#### Report A — {report_a['analyzed_at']}")
+                                st.markdown(report_a["report_markdown"])
+                            with col_right:
+                                st.markdown(f"#### Report B — {report_b['analyzed_at']}")
+                                st.markdown(report_b["report_markdown"])
+
+                        st.divider()
+
+                    # Individual report history
                     for report in history:
                         label = f"{report['exchange']}:{report['ticker']} | {report['profile']} | {report['analyzed_at']}"
                         with st.expander(label, expanded=False):

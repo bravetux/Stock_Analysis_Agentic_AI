@@ -4,7 +4,7 @@ from src.config.settings import Settings
 
 def test_report_cache_hours_default():
     s = Settings()
-    assert s.report_cache_hours == 24
+    assert s.report_cache_hours == 720
 
 
 def test_report_cache_hours_zero_disables_expiry():
