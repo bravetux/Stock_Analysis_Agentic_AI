@@ -39,11 +39,11 @@ store = get_report_store()
 
 
 class ToolTracker:
-    """Thread-safe tool timing tracker. Only collects data — no Streamlit calls.
+    """Thread-safe tool timing tracker and stream buffer. No Streamlit calls.
 
-    Strands agent hooks fire from a background thread (no Streamlit session).
+    Strands agent hooks and callback handler fire from a background thread.
     This class only appends to lists (thread-safe in CPython). The main
-    Streamlit thread polls get_dataframe() / current_tool to update the UI.
+    Streamlit thread polls to update the UI.
     """
 
     def __init__(self):
@@ -52,6 +52,9 @@ class ToolTracker:
         self.tool_count: int = 0
         self.current_tool: str | None = None
         self.done: bool = False
+        # Stream buffer — accumulates text chunks from callback_handler
+        self.stream_chunks: list[str] = []
+        self._stream_version: int = 0  # bumped on each new chunk for polling
 
     def on_start(self, tool_name: str):
         self._start_times[tool_name] = time.time()
@@ -69,6 +72,16 @@ class ToolTracker:
         })
         self.current_tool = None
 
+    def callback_handler(self, **kwargs):
+        """Strands callback handler — captures streaming text and tool info."""
+        data = kwargs.get("data", "")
+        if data:
+            self.stream_chunks.append(data)
+            self._stream_version += 1
+
+    def get_stream_text(self) -> str:
+        return "".join(self.stream_chunks)
+
     def get_dataframe(self) -> pd.DataFrame:
         if not self.entries:
             return pd.DataFrame(columns=["Tool", "Started", "Completed", "Duration (s)"])
@@ -80,31 +93,50 @@ class ToolTracker:
         self.tool_count = 0
         self.current_tool = None
         self.done = False
+        self.stream_chunks.clear()
+        self._stream_version = 0
 
 
 def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, status_label: str):
     """Run agent in a background thread while polling the tracker to update Streamlit UI.
 
+    Shows two live sections during analysis:
+    1. Tool Execution Summary — table of tool timings
+    2. Stream Data — live markdown stream from the LLM
+
     Returns the agent response string. Raises on failure.
     """
     result_holder: dict = {"response": None, "error": None}
+
+    # Set the agent's callback handler to our tracker so we capture stream chunks
+    original_handler = agent.callback_handler
+    agent.callback_handler = tracker.callback_handler
 
     def _run():
         try:
             result_holder["response"] = agent(prompt)
         except Exception as e:
             result_holder["error"] = e
+        finally:
+            agent.callback_handler = original_handler
 
     thread = threading.Thread(target=_run, daemon=True)
 
     # UI placeholders
     status_container = st.status(status_label, expanded=True)
-    st.subheader("Tool Execution Summary")
-    table_placeholder = st.empty()
-    total_placeholder = st.empty()
+
+    tool_col, stream_col = st.columns(2)
+    with tool_col:
+        st.subheader("Tool Execution Summary")
+        table_placeholder = st.empty()
+        total_placeholder = st.empty()
+    with stream_col:
+        st.subheader("Stream Data")
+        stream_placeholder = st.empty()
 
     thread.start()
     last_count = 0
+    last_stream_ver = 0
 
     while thread.is_alive():
         # Update status with current tool
@@ -121,7 +153,7 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
                     state="running",
                 )
 
-        # Update table if new entries
+        # Update tool table if new entries
         if tracker.tool_count > last_count:
             df = tracker.get_dataframe()
             if not df.empty:
@@ -129,24 +161,32 @@ def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, statu
                 total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
             last_count = tracker.tool_count
 
+        # Update stream data if new chunks
+        if tracker._stream_version > last_stream_ver:
+            stream_placeholder.markdown(tracker.get_stream_text())
+            last_stream_ver = tracker._stream_version
+
         time.sleep(0.5)
 
     thread.join()
 
-    # Final table update
+    # Final updates
     df = tracker.get_dataframe()
     if not df.empty:
         table_placeholder.dataframe(df, width="stretch", hide_index=True)
         total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
+
+    stream_placeholder.markdown(tracker.get_stream_text())
 
     if result_holder["error"]:
         status_container.update(label="Analysis failed", state="error")
         raise result_holder["error"]
 
     status_container.update(label="Analysis complete!", state="complete", expanded=False)
-    # Clear live table after success (data moves to Tool Execution Log tab)
+    # Clear live displays (data moves to tabs after completion)
     table_placeholder.empty()
     total_placeholder.empty()
+    stream_placeholder.empty()
 
     return result_holder["response"]
 
@@ -395,10 +435,17 @@ with analyze_tab:
         st.divider()
         report_md = st.session_state.results
 
-        tab1, tab2, tab3 = st.tabs(["Report", "Tool Execution Log", "Raw Output"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Report", "Stream Data", "Tool Execution Log", "Raw Output"])
         with tab1:
             st.markdown(report_md)
         with tab2:
+            tracker = st.session_state.tool_tracker
+            stream_text = tracker.get_stream_text()
+            if stream_text:
+                st.markdown(stream_text)
+            else:
+                st.info("No stream data available (cached report).")
+        with tab3:
             tracker = st.session_state.tool_tracker
             df = tracker.get_dataframe()
             if not df.empty:
@@ -408,7 +455,7 @@ with analyze_tab:
                 st.metric("Total Tool Execution Time", f"{total_time:.2f}s")
             else:
                 st.info("No tool execution data available (cached report).")
-        with tab3:
+        with tab4:
             st.code(report_md, language="markdown")
 
         col1, col2 = st.columns(2)
@@ -435,9 +482,19 @@ with analyze_tab:
 
         for display_ticker, report_md in st.session_state.batch_results.items():
             with st.expander(f"📊 {display_ticker}", expanded=False):
-                report_tab, log_tab = st.tabs(["Report", "Tool Execution Log"])
+                report_tab, stream_tab, log_tab = st.tabs(["Report", "Stream Data", "Tool Execution Log"])
                 with report_tab:
                     st.markdown(report_md)
+                with stream_tab:
+                    batch_tracker = st.session_state.batch_trackers.get(display_ticker)
+                    if batch_tracker:
+                        stream_text = batch_tracker.get_stream_text()
+                        if stream_text:
+                            st.markdown(stream_text)
+                        else:
+                            st.info("No stream data.")
+                    else:
+                        st.info("No stream data (cached report).")
                 with log_tab:
                     batch_tracker = st.session_state.batch_trackers.get(display_ticker)
                     if batch_tracker:
