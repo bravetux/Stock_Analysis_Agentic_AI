@@ -49,7 +49,7 @@ def main():
     from src.tools.batch_tools import read_stocks_file
     from src.config.settings import settings
     from src.db.report_store import ReportStore
-    from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk, build_tool_log_markdown
+    from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk
 
     profile = PROFILES[args.profile]
     print(f"Analysis level: {profile.label} — {profile.description}\n")
@@ -127,14 +127,10 @@ def main():
         print(report_md)
         _print_tool_summary()
 
-        # Build full report with tool execution log
-        tool_log_md = build_tool_log_markdown(tool_log)
-        full_report = report_md + tool_log_md
-
         # Always auto-save PDF and MD to reports/
-        pdf_bytes = markdown_to_pdf(full_report, ticker, exchange, args.profile)
+        pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, args.profile)
         pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-        md_path = save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
+        md_path = save_md_to_disk(report_md, ticker, exchange, settings.reports_dir)
         print(f"PDF saved: {pdf_path}")
         print(f"MD saved: {md_path}")
 

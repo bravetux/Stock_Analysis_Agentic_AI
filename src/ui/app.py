@@ -14,7 +14,7 @@ from src.config.exchanges import detect_exchange, strip_prefix, get_display_tick
 from src.config.analysis_profiles import PROFILES, PROFILE_ORDER, DEFAULT_PROFILE
 from src.config.settings import settings
 from src.db.report_store import ReportStore
-from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk, build_tool_log_markdown
+from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -289,14 +289,10 @@ with analyze_tab:
                     st.session_state.results = report_md
                     st.session_state.batch_results = {}
 
-                    # Build full report with tool execution log
-                    tool_log_md = build_tool_log_markdown(tracker.entries)
-                    full_report = report_md + tool_log_md
-
-                    # Auto-save PDF and MD with full content
-                    pdf_bytes = markdown_to_pdf(full_report, ticker, exchange, selected_profile)
+                    # Auto-save PDF and MD
+                    pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
                     pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-                    md_path = save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
+                    md_path = save_md_to_disk(report_md, ticker, exchange, settings.reports_dir)
                     store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
                     st.toast(f"Reports auto-saved: {pdf_path}, {md_path}")
                 except Exception as e:
@@ -371,14 +367,10 @@ with analyze_tab:
                         report_md = str(response)
                         batch_results[display] = report_md
 
-                        # Build full report with tool execution log
-                        tool_log_md = build_tool_log_markdown(tracker.entries)
-                        full_report = report_md + tool_log_md
-
-                        # Auto-save PDF and MD with full content
-                        pdf_bytes = markdown_to_pdf(full_report, ticker, exchange, selected_profile)
+                        # Auto-save PDF and MD
+                        pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, selected_profile)
                         pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-                        save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
+                        save_md_to_disk(report_md, ticker, exchange, settings.reports_dir)
                         store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
                     except Exception as e:
                         import traceback
@@ -419,21 +411,16 @@ with analyze_tab:
         with tab3:
             st.code(report_md, language="markdown")
 
-        # Build full report for downloads (includes tool log)
-        tracker = st.session_state.tool_tracker
-        tool_log_md = build_tool_log_markdown(tracker.entries)
-        full_report = report_md + tool_log_md
-
         col1, col2 = st.columns(2)
         with col1:
             st.download_button(
                 label="Download Report (Markdown)",
-                data=full_report,
+                data=report_md,
                 file_name="stock_analysis_report.md",
                 mime="text/markdown",
             )
         with col2:
-            pdf_bytes = markdown_to_pdf(full_report, "STOCK", "EX", selected_profile)
+            pdf_bytes = markdown_to_pdf(report_md, "STOCK", "EX", selected_profile)
             st.download_button(
                 label="Download Report (PDF)",
                 data=pdf_bytes,
@@ -465,17 +452,12 @@ with analyze_tab:
                     else:
                         st.info("No tool execution data (cached report).")
 
-                # Build full report for downloads (includes tool log)
-                batch_tracker_dl = st.session_state.batch_trackers.get(display_ticker)
-                batch_tool_log = build_tool_log_markdown(batch_tracker_dl.entries) if batch_tracker_dl else ""
-                full_batch_report = report_md + batch_tool_log
-
                 col1, col2 = st.columns(2)
                 safe_name = display_ticker.replace(":", "_")
                 with col1:
                     st.download_button(
                         label="Download MD",
-                        data=full_batch_report,
+                        data=report_md,
                         file_name=f"{safe_name}_report.md",
                         mime="text/markdown",
                         key=f"md_{display_ticker}",
@@ -484,7 +466,7 @@ with analyze_tab:
                     parts = display_ticker.split(":")
                     ex = parts[0] if len(parts) == 2 else "EX"
                     tk = parts[1] if len(parts) == 2 else parts[0]
-                    pdf_bytes = markdown_to_pdf(full_batch_report, tk, ex, selected_profile)
+                    pdf_bytes = markdown_to_pdf(report_md, tk, ex, selected_profile)
                     st.download_button(
                         label="Download PDF",
                         data=pdf_bytes,
