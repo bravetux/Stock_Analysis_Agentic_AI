@@ -270,7 +270,10 @@ with analyze_tab:
                     live_table.empty()
                     live_total.empty()
                     status_container.update(label="Analysis failed", state="error")
-                    st.error(f"Analysis failed: {e}")
+                    err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
+                    st.error(f"Analysis failed: {err_msg}")
+                    import traceback
+                    st.expander("Error Details").code(traceback.format_exc(), language="text")
                     logger.exception("Analysis failed for %s", display)
 
         else:  # Batch mode
@@ -363,7 +366,9 @@ with analyze_tab:
                     except Exception as e:
                         batch_live_table.empty()
                         batch_live_total.empty()
-                        batch_results[display] = f"Analysis failed: {e}"
+                        import traceback
+                        err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
+                        batch_results[display] = f"Analysis failed: {err_msg}\n\n```\n{traceback.format_exc()}\n```"
                         status_container.update(label=f"{display} — failed", state="error")
                         logger.exception("Batch analysis failed for %s", display)
 
