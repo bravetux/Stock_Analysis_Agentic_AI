@@ -38,7 +38,13 @@ store = get_report_store()
 
 
 class ToolTracker:
-    """Tracks tool execution times with live table updates during analysis."""
+    """Tracks tool execution times with live table updates during analysis.
+
+    Note: Strands agent hooks fire from a background thread where Streamlit's
+    session context is unavailable. All st.* calls are wrapped in try/except
+    to handle NoSessionContext gracefully — data tracking still works, only
+    the live UI updates are skipped when called from the wrong thread.
+    """
 
     def __init__(self):
         self.entries: list[dict] = []
@@ -49,32 +55,37 @@ class ToolTracker:
         self._tool_count = 0
 
     def set_status_container(self, container):
-        """Set the Streamlit status container for live updates."""
         self._status_container = container
 
     def set_table_placeholder(self, table_ph, total_ph):
-        """Set Streamlit placeholders for the live-updating table and total metric."""
         self._table_placeholder = table_ph
         self._total_placeholder = total_ph
 
+    def _safe_ui(self, fn):
+        """Run a Streamlit UI call, silently ignoring NoSessionContext errors."""
+        try:
+            fn()
+        except Exception:
+            pass  # Called from agent thread — no Streamlit session available
+
     def _refresh_table(self):
-        """Redraw the live table with current entries."""
         if not self._table_placeholder:
             return
         df = self.get_dataframe()
         if not df.empty:
-            self._table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+            self._safe_ui(lambda: self._table_placeholder.dataframe(df, use_container_width=True, hide_index=True))
             total_time = df["Duration (s)"].sum()
-            self._total_placeholder.metric("Total Tool Execution Time", f"{total_time:.2f}s")
+            self._safe_ui(lambda: self._total_placeholder.metric("Total Tool Execution Time", f"{total_time:.2f}s"))
 
     def on_start(self, tool_name: str):
         self._start_times[tool_name] = time.time()
         self._tool_count += 1
         if self._status_container:
-            self._status_container.update(
-                label=f"Running: {tool_name} (tool #{self._tool_count})...",
+            count = self._tool_count
+            self._safe_ui(lambda: self._status_container.update(
+                label=f"Running: {tool_name} (tool #{count})...",
                 state="running",
-            )
+            ))
 
     def on_end(self, tool_name: str, elapsed: float):
         start_time = self._start_times.pop(tool_name, None)
@@ -86,10 +97,11 @@ class ToolTracker:
             "Duration (s)": round(elapsed, 2),
         })
         if self._status_container:
-            self._status_container.update(
-                label=f"Completed: {tool_name} ({elapsed:.2f}s) — {self._tool_count} tools so far",
+            count = self._tool_count
+            self._safe_ui(lambda: self._status_container.update(
+                label=f"Completed: {tool_name} ({elapsed:.2f}s) — {count} tools so far",
                 state="running",
-            )
+            ))
         self._refresh_table()
 
     def get_dataframe(self) -> pd.DataFrame:
