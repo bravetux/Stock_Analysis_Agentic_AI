@@ -14,7 +14,7 @@ from src.config.exchanges import detect_exchange, strip_prefix, get_display_tick
 from src.config.analysis_profiles import PROFILES, PROFILE_ORDER, DEFAULT_PROFILE
 from src.config.settings import settings
 from src.db.report_store import ReportStore
-from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk
+from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk, batch_report_to_pdf, save_batch_pdf_to_disk
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -278,6 +278,8 @@ if "batch_trackers" not in st.session_state:
     st.session_state.batch_trackers = {}
 if "batch_comparisons" not in st.session_state:
     st.session_state.batch_comparisons = {}
+if "consolidated_table" not in st.session_state:
+    st.session_state.consolidated_table = ""
 
 # --- Top-level Tabs ---
 analyze_tab, history_tab = st.tabs(["Analyze", "History"])
@@ -458,6 +460,39 @@ with analyze_tab:
                     batch_trackers[display] = tracker
 
                 progress_bar.progress(1.0, text="Batch analysis complete!")
+
+                # Generate consolidated summary table
+                consolidated_table = ""
+                successful_reports = {k: v for k, v in batch_results.items() if not v.startswith("Analysis failed")}
+                if successful_reports:
+                    with st.spinner("Generating consolidated summary table..."):
+                        try:
+                            summary_agent = create_orchestrator(profile=selected_profile)
+                            all_reports_text = "\n\n---\n\n".join(
+                                f"### {ticker}\n{report}" for ticker, report in successful_reports.items()
+                            )
+                            summary_prompt = (
+                                "Based on the following stock analysis reports, create a single consolidated summary table in markdown format.\n\n"
+                                "The table MUST have these exact columns:\n"
+                                "| Stock | Current Price | 200DMA Trend | MACD Status | MACD Signal | EMA Status | EMA Trend | "
+                                "News Sentiment | PE Ratio | PE Assessment | ROE | ROE Assessment | ROCE Assessment | Debt Status | "
+                                "Dividend Yield | OPM Margin Trend | OPM Assessment | Risk Level | Composite Score | Signal | Target Price |\n\n"
+                                "Extract the values from each stock report below. If a value is not available, put 'N/A'.\n"
+                                "Only output the markdown table, nothing else.\n\n"
+                                f"{all_reports_text}"
+                            )
+                            summary_response = summary_agent(summary_prompt)
+                            consolidated_table = str(summary_response)
+                        except Exception as e:
+                            logger.warning("Failed to generate consolidated table: %s", e)
+                            consolidated_table = "*Could not generate consolidated table.*"
+
+                    # Auto-save consolidated batch PDF
+                    batch_pdf = batch_report_to_pdf(successful_reports, consolidated_table, selected_profile)
+                    batch_pdf_path = save_batch_pdf_to_disk(batch_pdf, settings.reports_dir)
+                    st.toast(f"Consolidated batch PDF saved: {batch_pdf_path}")
+
+                st.session_state.consolidated_table = consolidated_table
                 st.session_state.batch_results = batch_results
                 st.session_state.batch_trackers = batch_trackers
                 st.session_state.batch_comparisons = batch_comparisons
@@ -524,6 +559,26 @@ with analyze_tab:
     if st.session_state.batch_results:
         st.divider()
         st.subheader(f"Batch Results — {len(st.session_state.batch_results)} stocks")
+
+        # Consolidated Summary Table
+        if st.session_state.consolidated_table:
+            with st.expander("Consolidated Report Table", expanded=True):
+                st.markdown(st.session_state.consolidated_table)
+
+                # Download consolidated batch PDF
+                successful = {k: v for k, v in st.session_state.batch_results.items()
+                              if not v.startswith("Analysis failed")}
+                if successful:
+                    batch_pdf = batch_report_to_pdf(
+                        successful, st.session_state.consolidated_table, selected_profile,
+                    )
+                    st.download_button(
+                        label="Download Consolidated Batch PDF",
+                        data=batch_pdf,
+                        file_name="batch_consolidated_report.pdf",
+                        mime="application/pdf",
+                        key="batch_pdf_dl",
+                    )
 
         for display_ticker, report_md in st.session_state.batch_results.items():
             with st.expander(f"📊 {display_ticker}", expanded=False):

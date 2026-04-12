@@ -11,74 +11,121 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 logger = logging.getLogger(__name__)
 
-# Register Consolas font from Windows system fonts
 _FONT_REGISTERED = False
 
 
-def _register_consolas():
-    """Register Consolas TTF font with reportlab for xhtml2pdf to use."""
+def _register_fonts():
+    """Register Consolas + Segoe UI (rupee symbol fallback) with reportlab."""
     global _FONT_REGISTERED
     if _FONT_REGISTERED:
         return
     fonts_dir = Path("C:/Windows/Fonts")
-    font_files = {
+
+    # Consolas for main monospace text
+    consolas_files = {
         "Consolas": "consola.ttf",
         "Consolas-Bold": "consolab.ttf",
         "Consolas-Italic": "consolai.ttf",
         "Consolas-BoldItalic": "consolaz.ttf",
     }
-    for font_name, filename in font_files.items():
+    for font_name, filename in consolas_files.items():
         font_path = fonts_dir / filename
         if font_path.exists():
             try:
                 pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
             except Exception as e:
                 logger.debug("Could not register font %s: %s", font_name, e)
-    # Register font family so bold/italic map correctly
+
+    # Segoe UI for rupee symbol and other Unicode glyphs
+    segoe_files = {
+        "SegoeUI": "segoeui.ttf",
+        "SegoeUI-Bold": "segoeuib.ttf",
+        "SegoeUI-Italic": "segoeuii.ttf",
+        "SegoeUI-BoldItalic": "segoeuiz.ttf",
+    }
+    for font_name, filename in segoe_files.items():
+        font_path = fonts_dir / filename
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+            except Exception as e:
+                logger.debug("Could not register font %s: %s", font_name, e)
+
     try:
         from reportlab.pdfbase.pdfmetrics import registerFontFamily
-        registerFontFamily(
-            "Consolas",
-            normal="Consolas",
-            bold="Consolas-Bold",
-            italic="Consolas-Italic",
-            boldItalic="Consolas-BoldItalic",
-        )
+        registerFontFamily("Consolas", normal="Consolas", bold="Consolas-Bold",
+                           italic="Consolas-Italic", boldItalic="Consolas-BoldItalic")
+        registerFontFamily("SegoeUI", normal="SegoeUI", bold="SegoeUI-Bold",
+                           italic="SegoeUI-Italic", boldItalic="SegoeUI-BoldItalic")
     except Exception as e:
-        logger.debug("Could not register Consolas font family: %s", e)
+        logger.debug("Could not register font families: %s", e)
+
     _FONT_REGISTERED = True
 
 
 _CSS = """
-body { font-family: Consolas, 'Courier New', monospace; font-size: 10px; color: #222; margin: 30px; line-height: 1.3; }
+body { font-family: Consolas, SegoeUI, 'Courier New', sans-serif; font-size: 10px; color: #222; margin: 30px; line-height: 1.3; }
 p { margin: 3px 0; line-height: 1.3; }
 ul, ol { margin: 3px 0; padding-left: 20px; }
 li { margin: 1px 0; line-height: 1.3; }
-h1 { color: #1a1a2e; border-bottom: 2px solid #1a1a2e; padding-bottom: 4px; font-size: 18px; margin: 10px 0 6px 0; line-height: 1.2; }
-h2 { color: #16213e; font-size: 14px; margin: 8px 0 4px 0; line-height: 1.2; }
-h3 { color: #0f3460; font-size: 12px; margin: 6px 0 3px 0; line-height: 1.2; }
-h4 { color: #0f3460; font-size: 11px; margin: 5px 0 2px 0; line-height: 1.2; }
+
+/* Headings — colorful */
+h1 { color: #1a1a2e; border-bottom: 2px solid #e94560; padding-bottom: 4px; font-size: 18px; margin: 10px 0 6px 0; line-height: 1.2; }
+h2 { color: #0f3460; border-left: 4px solid #e94560; padding-left: 8px; font-size: 14px; margin: 8px 0 4px 0; line-height: 1.2; }
+h3 { color: #16213e; font-size: 12px; margin: 6px 0 3px 0; line-height: 1.2; }
+h4 { color: #533483; font-size: 11px; margin: 5px 0 2px 0; line-height: 1.2; }
+
+/* Tables — colored header and alternating rows */
 table { border-collapse: collapse; width: 100%; margin: 4px 0; }
-th, td { border: 1px solid #ccc; padding: 3px 6px; text-align: left; font-size: 9px; line-height: 1.2; }
-th { background-color: #1a1a2e; color: white; }
-tr:nth-child(even) { background-color: #f5f5f5; }
-code { background-color: #f0f0f0; padding: 1px 3px; font-size: 9px; }
-pre { background-color: #f0f0f0; padding: 6px; font-size: 9px; margin: 3px 0; line-height: 1.2; }
-hr { margin: 6px 0; border: none; border-top: 1px solid #ccc; }
-strong { font-weight: bold; }
-.header { text-align: center; margin-bottom: 10px; }
-.header h1 { font-size: 20px; margin-bottom: 2px; }
-.header p { color: #666; font-size: 10px; margin: 1px 0; }
-.footer { text-align: center; font-size: 8px; color: #999; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 4px; }
+th, td { border: 1px solid #ddd; padding: 3px 6px; text-align: left; font-size: 9px; line-height: 1.2; }
+th { background-color: #0f3460; color: white; font-weight: bold; }
+tr:nth-child(even) { background-color: #e8f4f8; }
+tr:nth-child(odd) { background-color: #ffffff; }
+
+/* Inline styles for common report patterns */
+code { background-color: #eef2ff; padding: 1px 3px; font-size: 9px; color: #4338ca; }
+pre { background-color: #f8f9fa; padding: 6px; font-size: 9px; margin: 3px 0; line-height: 1.2; border-left: 3px solid #0f3460; }
+hr { margin: 6px 0; border: none; border-top: 1px solid #e94560; }
+strong { font-weight: bold; color: #1a1a2e; }
+em { color: #533483; }
+
+/* Badges / colored text via custom classes */
+.bullish { color: #16a34a; font-weight: bold; }
+.bearish { color: #dc2626; font-weight: bold; }
+.neutral { color: #d97706; font-weight: bold; }
+
+/* Header and footer */
+.report-meta { text-align: right; font-size: 8px; color: #888; margin-bottom: 4px; }
+.header { text-align: center; margin-bottom: 10px; background-color: #0f3460; color: white; padding: 10px; }
+.header h1 { font-size: 20px; margin-bottom: 2px; color: white; border: none; }
+.header p { color: #e8f4f8; font-size: 10px; margin: 1px 0; }
+.footer { text-align: center; font-size: 8px; color: #999; margin-top: 15px; border-top: 1px solid #e94560; padding-top: 4px; }
 """
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><style>{css}</style></head>
 <body>
+<div class="report-meta">Generated on: {date}</div>
 <div class="header">
     <h1>Stock Analysis Report</h1>
-    <p><strong>{exchange}:{ticker}</strong> | Profile: {profile} | {date}</p>
+    <p><strong>{exchange}:{ticker}</strong> | Profile: {profile}</p>
+</div>
+{content}
+<div class="footer">
+    Generated by AI Agents. Tool Developed by B.Vignesh Kumar aka bravetux &lt;ic19939@gmail.com&gt; | This report is for informational purposes only and does not constitute financial advice.
+</div>
+</body>
+</html>"""
+
+_BATCH_HTML_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>{css}</style></head>
+<body>
+<div class="report-meta">Generated on: {date}</div>
+<div class="header">
+    <h1>Batch Stock Analysis Report</h1>
+    <p>{stock_count} stocks | Profile: {profile}</p>
 </div>
 {content}
 <div class="footer">
@@ -88,11 +135,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+def _replace_rupee_for_pdf(text: str) -> str:
+    """Replace ₹ with HTML entity so xhtml2pdf renders it via fallback font."""
+    return text.replace("₹", "&#x20B9;")
+
+
 def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) -> bytes:
     """Convert a markdown report to styled PDF bytes."""
-    _register_consolas()
+    _register_fonts()
     html_content = markdown2.markdown(
-        report_md,
+        _replace_rupee_for_pdf(report_md),
         extras=["tables", "fenced-code-blocks", "header-ids", "strike", "task_list"],
     )
     full_html = _HTML_TEMPLATE.format(
@@ -100,7 +152,7 @@ def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) ->
         exchange=exchange.upper(),
         ticker=ticker.upper(),
         profile=profile,
-        date=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        date=datetime.now().strftime("%d %b %Y, %I:%M %p"),
         content=html_content,
     )
     buffer = io.BytesIO()
@@ -108,22 +160,57 @@ def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) ->
     return buffer.getvalue()
 
 
-def build_tool_log_markdown(tool_entries: list[dict]) -> str:
-    """Build a markdown section for tool execution log.
+def batch_report_to_pdf(
+    reports: dict[str, str],
+    consolidated_table_md: str,
+    profile: str,
+) -> bytes:
+    """Convert batch reports + consolidated table to a single PDF.
 
     Args:
-        tool_entries: List of dicts with keys Tool, Started, Completed, Duration (s).
-    Returns:
-        Markdown string with the tool execution table, or empty string if no entries.
+        reports: Dict of display_ticker -> report_markdown.
+        consolidated_table_md: Markdown for the consolidated summary table.
+        profile: Analysis profile name.
     """
+    _register_fonts()
+
+    sections = []
+
+    # Consolidated summary table first
+    if consolidated_table_md:
+        table_html = markdown2.markdown(
+            _replace_rupee_for_pdf(consolidated_table_md),
+            extras=["tables", "fenced-code-blocks"],
+        )
+        sections.append(f"<h2>Consolidated Summary</h2>\n{table_html}\n<hr/>")
+
+    # Individual reports
+    for display_ticker, report_md in reports.items():
+        report_html = markdown2.markdown(
+            _replace_rupee_for_pdf(report_md),
+            extras=["tables", "fenced-code-blocks", "header-ids", "strike", "task_list"],
+        )
+        sections.append(f"<h2>{display_ticker}</h2>\n{report_html}\n<hr/>")
+
+    full_html = _BATCH_HTML_TEMPLATE.format(
+        css=_CSS,
+        date=datetime.now().strftime("%d %b %Y, %I:%M %p"),
+        stock_count=len(reports),
+        profile=profile,
+        content="\n".join(sections),
+    )
+    buffer = io.BytesIO()
+    pisa.CreatePDF(io.StringIO(full_html), dest=buffer)
+    return buffer.getvalue()
+
+
+def build_tool_log_markdown(tool_entries: list[dict]) -> str:
+    """Build a markdown section for tool execution log."""
     if not tool_entries:
         return ""
     lines = [
-        "",
-        "---",
-        "",
-        "## Tool Execution Log",
-        "",
+        "", "---", "",
+        "## Tool Execution Log", "",
         "| Tool | Started | Completed | Duration (s) |",
         "|------|---------|-----------|--------------|",
     ]
@@ -141,6 +228,17 @@ def save_pdf_to_disk(pdf_bytes: bytes, ticker: str, exchange: str, reports_dir: 
     os.makedirs(reports_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     filename = f"{exchange.upper()}_{ticker.upper()}_{timestamp}.pdf"
+    filepath = os.path.join(reports_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(pdf_bytes)
+    return filepath
+
+
+def save_batch_pdf_to_disk(pdf_bytes: bytes, reports_dir: str = "reports") -> str:
+    """Save batch consolidated PDF. Returns the file path."""
+    os.makedirs(reports_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    filename = f"BATCH_CONSOLIDATED_{timestamp}.pdf"
     filepath = os.path.join(reports_dir, filename)
     with open(filepath, "wb") as f:
         f.write(pdf_bytes)
