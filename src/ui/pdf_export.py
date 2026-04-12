@@ -58,6 +58,34 @@ def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) ->
     return buffer.getvalue()
 
 
+def build_tool_log_markdown(tool_entries: list[dict]) -> str:
+    """Build a markdown section for tool execution log.
+
+    Args:
+        tool_entries: List of dicts with keys Tool, Started, Completed, Duration (s).
+    Returns:
+        Markdown string with the tool execution table, or empty string if no entries.
+    """
+    if not tool_entries:
+        return ""
+    lines = [
+        "",
+        "---",
+        "",
+        "## Tool Execution Log",
+        "",
+        "| Tool | Started | Completed | Duration (s) |",
+        "|------|---------|-----------|--------------|",
+    ]
+    total = 0.0
+    for entry in tool_entries:
+        lines.append(f"| {entry['Tool']} | {entry['Started']} | {entry['Completed']} | {entry['Duration (s)']} |")
+        total += entry["Duration (s)"]
+    lines.append(f"| **Total** | | | **{total:.2f}** |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def save_pdf_to_disk(pdf_bytes: bytes, ticker: str, exchange: str, reports_dir: str = "reports") -> str:
     """Save PDF bytes to the reports directory. Returns the file path."""
     os.makedirs(reports_dir, exist_ok=True)
@@ -66,4 +94,15 @@ def save_pdf_to_disk(pdf_bytes: bytes, ticker: str, exchange: str, reports_dir: 
     filepath = os.path.join(reports_dir, filename)
     with open(filepath, "wb") as f:
         f.write(pdf_bytes)
+    return filepath
+
+
+def save_md_to_disk(report_md: str, ticker: str, exchange: str, reports_dir: str = "reports") -> str:
+    """Save markdown report to the reports directory. Returns the file path."""
+    os.makedirs(reports_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    filename = f"{exchange.upper()}_{ticker.upper()}_{timestamp}.md"
+    filepath = os.path.join(reports_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report_md)
     return filepath

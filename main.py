@@ -37,7 +37,6 @@ def main():
         default=DEFAULT_PROFILE,
         help=f"Analysis level (default: {DEFAULT_PROFILE})",
     )
-    parser.add_argument("--pdf", action="store_true", help="Export analysis as PDF to reports/ folder")
     parser.add_argument("--cached", action="store_true", help="Use cached report from database if available")
     args = parser.parse_args()
 
@@ -50,7 +49,7 @@ def main():
     from src.tools.batch_tools import read_stocks_file
     from src.config.settings import settings
     from src.db.report_store import ReportStore
-    from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk
+    from src.ui.pdf_export import markdown_to_pdf, save_pdf_to_disk, save_md_to_disk, build_tool_log_markdown
 
     profile = PROFILES[args.profile]
     print(f"Analysis level: {profile.label} — {profile.description}\n")
@@ -102,10 +101,12 @@ def main():
                 print(f"[Cached] {display} on {exchange} (from {cached['analyzed_at']})")
                 report_md = cached["report_markdown"]
                 print(report_md)
-                if args.pdf:
-                    pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, cached["profile"])
-                    pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-                    print(f"PDF saved: {pdf_path}")
+                # Auto-save cached report as PDF and MD
+                pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, cached["profile"])
+                pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+                md_path = save_md_to_disk(report_md, ticker, exchange, settings.reports_dir)
+                print(f"PDF saved: {pdf_path}")
+                print(f"MD saved: {md_path}")
                 return report_md
             else:
                 print(f"No cached report for {display}. Running fresh analysis...")
@@ -126,11 +127,16 @@ def main():
         print(report_md)
         _print_tool_summary()
 
-        pdf_path = None
-        if args.pdf:
-            pdf_bytes = markdown_to_pdf(report_md, ticker, exchange, args.profile)
-            pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
-            print(f"PDF saved: {pdf_path}")
+        # Build full report with tool execution log
+        tool_log_md = build_tool_log_markdown(tool_log)
+        full_report = report_md + tool_log_md
+
+        # Always auto-save PDF and MD to reports/
+        pdf_bytes = markdown_to_pdf(full_report, ticker, exchange, args.profile)
+        pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
+        md_path = save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
+        print(f"PDF saved: {pdf_path}")
+        print(f"MD saved: {md_path}")
 
         store.save_report(ticker, exchange, args.profile, report_md, pdf_path)
         return report_md
