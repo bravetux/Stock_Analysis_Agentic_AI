@@ -1,26 +1,75 @@
 import io
 import os
+import logging
 from datetime import datetime
+from pathlib import Path
 
 import markdown2
 from xhtml2pdf import pisa
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+logger = logging.getLogger(__name__)
+
+# Register Consolas font from Windows system fonts
+_FONT_REGISTERED = False
+
+
+def _register_consolas():
+    """Register Consolas TTF font with reportlab for xhtml2pdf to use."""
+    global _FONT_REGISTERED
+    if _FONT_REGISTERED:
+        return
+    fonts_dir = Path("C:/Windows/Fonts")
+    font_files = {
+        "Consolas": "consola.ttf",
+        "Consolas-Bold": "consolab.ttf",
+        "Consolas-Italic": "consolai.ttf",
+        "Consolas-BoldItalic": "consolaz.ttf",
+    }
+    for font_name, filename in font_files.items():
+        font_path = fonts_dir / filename
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+            except Exception as e:
+                logger.debug("Could not register font %s: %s", font_name, e)
+    # Register font family so bold/italic map correctly
+    try:
+        from reportlab.pdfbase.pdfmetrics import registerFontFamily
+        registerFontFamily(
+            "Consolas",
+            normal="Consolas",
+            bold="Consolas-Bold",
+            italic="Consolas-Italic",
+            boldItalic="Consolas-BoldItalic",
+        )
+    except Exception as e:
+        logger.debug("Could not register Consolas font family: %s", e)
+    _FONT_REGISTERED = True
 
 
 _CSS = """
-body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #222; margin: 40px; }
-h1 { color: #1a1a2e; border-bottom: 2px solid #1a1a2e; padding-bottom: 8px; font-size: 20px; }
-h2 { color: #16213e; margin-top: 20px; font-size: 16px; }
-h3 { color: #0f3460; font-size: 13px; }
-table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 10px; }
+body { font-family: Consolas, 'Courier New', monospace; font-size: 10px; color: #222; margin: 30px; line-height: 1.3; }
+p { margin: 3px 0; line-height: 1.3; }
+ul, ol { margin: 3px 0; padding-left: 20px; }
+li { margin: 1px 0; line-height: 1.3; }
+h1 { color: #1a1a2e; border-bottom: 2px solid #1a1a2e; padding-bottom: 4px; font-size: 18px; margin: 10px 0 6px 0; line-height: 1.2; }
+h2 { color: #16213e; font-size: 14px; margin: 8px 0 4px 0; line-height: 1.2; }
+h3 { color: #0f3460; font-size: 12px; margin: 6px 0 3px 0; line-height: 1.2; }
+h4 { color: #0f3460; font-size: 11px; margin: 5px 0 2px 0; line-height: 1.2; }
+table { border-collapse: collapse; width: 100%; margin: 4px 0; }
+th, td { border: 1px solid #ccc; padding: 3px 6px; text-align: left; font-size: 9px; line-height: 1.2; }
 th { background-color: #1a1a2e; color: white; }
 tr:nth-child(even) { background-color: #f5f5f5; }
-code { background-color: #f0f0f0; padding: 2px 4px; font-size: 10px; }
-pre { background-color: #f0f0f0; padding: 10px; font-size: 10px; overflow-x: auto; }
-.header { text-align: center; margin-bottom: 20px; }
-.header h1 { font-size: 22px; margin-bottom: 4px; }
-.header p { color: #666; font-size: 11px; margin: 2px 0; }
-.footer { text-align: center; font-size: 9px; color: #999; margin-top: 30px; border-top: 1px solid #ccc; padding-top: 8px; }
+code { background-color: #f0f0f0; padding: 1px 3px; font-size: 9px; }
+pre { background-color: #f0f0f0; padding: 6px; font-size: 9px; margin: 3px 0; line-height: 1.2; }
+hr { margin: 6px 0; border: none; border-top: 1px solid #ccc; }
+strong { font-weight: bold; }
+.header { text-align: center; margin-bottom: 10px; }
+.header h1 { font-size: 20px; margin-bottom: 2px; }
+.header p { color: #666; font-size: 10px; margin: 1px 0; }
+.footer { text-align: center; font-size: 8px; color: #999; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 4px; }
 """
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
@@ -41,6 +90,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 def markdown_to_pdf(report_md: str, ticker: str, exchange: str, profile: str) -> bytes:
     """Convert a markdown report to styled PDF bytes."""
+    _register_consolas()
     html_content = markdown2.markdown(
         report_md,
         extras=["tables", "fenced-code-blocks", "header-ids", "strike", "task_list"],
