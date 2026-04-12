@@ -6,6 +6,7 @@
 import streamlit as st
 import logging
 import time
+import threading
 from datetime import datetime
 from src.agents.orchestrator import create_orchestrator
 from src.tools.batch_tools import read_stocks_file
@@ -38,54 +39,24 @@ store = get_report_store()
 
 
 class ToolTracker:
-    """Tracks tool execution times with live table updates during analysis.
+    """Thread-safe tool timing tracker. Only collects data — no Streamlit calls.
 
-    Note: Strands agent hooks fire from a background thread where Streamlit's
-    session context is unavailable. All st.* calls are wrapped in try/except
-    to handle NoSessionContext gracefully — data tracking still works, only
-    the live UI updates are skipped when called from the wrong thread.
+    Strands agent hooks fire from a background thread (no Streamlit session).
+    This class only appends to lists (thread-safe in CPython). The main
+    Streamlit thread polls get_dataframe() / current_tool to update the UI.
     """
 
     def __init__(self):
         self.entries: list[dict] = []
         self._start_times: dict[str, float] = {}
-        self._status_container = None
-        self._table_placeholder = None
-        self._total_placeholder = None
-        self._tool_count = 0
-
-    def set_status_container(self, container):
-        self._status_container = container
-
-    def set_table_placeholder(self, table_ph, total_ph):
-        self._table_placeholder = table_ph
-        self._total_placeholder = total_ph
-
-    def _safe_ui(self, fn):
-        """Run a Streamlit UI call, silently ignoring NoSessionContext errors."""
-        try:
-            fn()
-        except Exception:
-            pass  # Called from agent thread — no Streamlit session available
-
-    def _refresh_table(self):
-        if not self._table_placeholder:
-            return
-        df = self.get_dataframe()
-        if not df.empty:
-            self._safe_ui(lambda: self._table_placeholder.dataframe(df, use_container_width=True, hide_index=True))
-            total_time = df["Duration (s)"].sum()
-            self._safe_ui(lambda: self._total_placeholder.metric("Total Tool Execution Time", f"{total_time:.2f}s"))
+        self.tool_count: int = 0
+        self.current_tool: str | None = None
+        self.done: bool = False
 
     def on_start(self, tool_name: str):
         self._start_times[tool_name] = time.time()
-        self._tool_count += 1
-        if self._status_container:
-            count = self._tool_count
-            self._safe_ui(lambda: self._status_container.update(
-                label=f"Running: {tool_name} (tool #{count})...",
-                state="running",
-            ))
+        self.tool_count += 1
+        self.current_tool = tool_name
 
     def on_end(self, tool_name: str, elapsed: float):
         start_time = self._start_times.pop(tool_name, None)
@@ -96,13 +67,7 @@ class ToolTracker:
             "Completed": datetime.now().strftime("%H:%M:%S"),
             "Duration (s)": round(elapsed, 2),
         })
-        if self._status_container:
-            count = self._tool_count
-            self._safe_ui(lambda: self._status_container.update(
-                label=f"Completed: {tool_name} ({elapsed:.2f}s) — {count} tools so far",
-                state="running",
-            ))
-        self._refresh_table()
+        self.current_tool = None
 
     def get_dataframe(self) -> pd.DataFrame:
         if not self.entries:
@@ -112,9 +77,78 @@ class ToolTracker:
     def reset(self):
         self.entries.clear()
         self._start_times.clear()
-        self._tool_count = 0
-        self._table_placeholder = None
-        self._total_placeholder = None
+        self.tool_count = 0
+        self.current_tool = None
+        self.done = False
+
+
+def run_agent_with_live_progress(agent, prompt: str, tracker: ToolTracker, status_label: str):
+    """Run agent in a background thread while polling the tracker to update Streamlit UI.
+
+    Returns the agent response string. Raises on failure.
+    """
+    result_holder: dict = {"response": None, "error": None}
+
+    def _run():
+        try:
+            result_holder["response"] = agent(prompt)
+        except Exception as e:
+            result_holder["error"] = e
+
+    thread = threading.Thread(target=_run, daemon=True)
+
+    # UI placeholders
+    status_container = st.status(status_label, expanded=True)
+    st.subheader("Tool Execution Summary")
+    table_placeholder = st.empty()
+    total_placeholder = st.empty()
+
+    thread.start()
+    last_count = 0
+
+    while thread.is_alive():
+        # Update status with current tool
+        if tracker.current_tool:
+            status_container.update(
+                label=f"Running: {tracker.current_tool} (tool #{tracker.tool_count})...",
+                state="running",
+            )
+        elif tracker.tool_count > last_count:
+            last_entry = tracker.entries[-1] if tracker.entries else None
+            if last_entry:
+                status_container.update(
+                    label=f"Completed: {last_entry['Tool']} ({last_entry['Duration (s)']}s) — {tracker.tool_count} tools",
+                    state="running",
+                )
+
+        # Update table if new entries
+        if tracker.tool_count > last_count:
+            df = tracker.get_dataframe()
+            if not df.empty:
+                table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+                total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
+            last_count = tracker.tool_count
+
+        time.sleep(0.5)
+
+    thread.join()
+
+    # Final table update
+    df = tracker.get_dataframe()
+    if not df.empty:
+        table_placeholder.dataframe(df, use_container_width=True, hide_index=True)
+        total_placeholder.metric("Total Tool Execution Time", f"{df['Duration (s)'].sum():.2f}s")
+
+    if result_holder["error"]:
+        status_container.update(label="Analysis failed", state="error")
+        raise result_holder["error"]
+
+    status_container.update(label="Analysis complete!", state="complete", expanded=False)
+    # Clear live table after success (data moves to Tool Execution Log tab)
+    table_placeholder.empty()
+    total_placeholder.empty()
+
+    return result_holder["response"]
 
 
 # --- Sidebar ---
@@ -229,17 +263,6 @@ with analyze_tab:
                 )
                 tracker = st.session_state.tool_tracker
                 tracker.reset()
-                status_container = st.status(
-                    f"Running {profile.label.lower()}-level analysis for {display}...",
-                    expanded=True,
-                )
-                tracker.set_status_container(status_container)
-
-                # Live progress table (visible during analysis)
-                st.subheader("Tool Execution Summary")
-                live_table = st.empty()
-                live_total = st.empty()
-                tracker.set_table_placeholder(live_table, live_total)
 
                 try:
                     prev_profile = st.session_state.get("active_profile")
@@ -257,14 +280,14 @@ with analyze_tab:
                         f"Use up to {max_queries} news search queries.\n\n"
                         f"{profile.prompt_instructions}"
                     )
-                    response = agent(prompt)
+
+                    response = run_agent_with_live_progress(
+                        agent, prompt, tracker,
+                        status_label=f"Running {profile.label.lower()}-level analysis for {display}...",
+                    )
                     report_md = str(response)
                     st.session_state.results = report_md
                     st.session_state.batch_results = {}
-
-                    # Clear the live progress table (data moves to Tool Execution Log tab)
-                    live_table.empty()
-                    live_total.empty()
 
                     # Build full report with tool execution log
                     tool_log_md = build_tool_log_markdown(tracker.entries)
@@ -275,13 +298,8 @@ with analyze_tab:
                     pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
                     md_path = save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
                     store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
-
-                    status_container.update(label="Analysis complete!", state="complete", expanded=False)
                     st.toast(f"Reports auto-saved: {pdf_path}, {md_path}")
                 except Exception as e:
-                    live_table.empty()
-                    live_total.empty()
-                    status_container.update(label="Analysis failed", state="error")
                     err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
                     st.error(f"Analysis failed: {err_msg}")
                     import traceback
@@ -330,17 +348,6 @@ with analyze_tab:
                             continue
 
                     tracker = ToolTracker()
-                    status_container = st.status(
-                        f"Analyzing {display} ({i+1}/{len(stocks)})...",
-                        expanded=True,
-                    )
-                    tracker.set_status_container(status_container)
-
-                    # Live progress table for this stock
-                    st.caption(f"**{display}** — Tool Execution Summary")
-                    batch_live_table = st.empty()
-                    batch_live_total = st.empty()
-                    tracker.set_table_placeholder(batch_live_table, batch_live_total)
 
                     # Re-create orchestrator per stock so hooks use the current tracker
                     st.session_state.orchestrator = create_orchestrator(
@@ -357,13 +364,12 @@ with analyze_tab:
                             f"Use up to {max_queries} news search queries.\n\n"
                             f"{profile.prompt_instructions}"
                         )
-                        response = agent(prompt)
+                        response = run_agent_with_live_progress(
+                            agent, prompt, tracker,
+                            status_label=f"Analyzing {display} ({i+1}/{len(stocks)})...",
+                        )
                         report_md = str(response)
                         batch_results[display] = report_md
-
-                        # Clear live table (data moves to Tool Execution Log tab)
-                        batch_live_table.empty()
-                        batch_live_total.empty()
 
                         # Build full report with tool execution log
                         tool_log_md = build_tool_log_markdown(tracker.entries)
@@ -374,14 +380,10 @@ with analyze_tab:
                         pdf_path = save_pdf_to_disk(pdf_bytes, ticker, exchange, settings.reports_dir)
                         save_md_to_disk(full_report, ticker, exchange, settings.reports_dir)
                         store.save_report(ticker, exchange, selected_profile, report_md, pdf_path)
-                        status_container.update(label=f"{display} — complete!", state="complete", expanded=False)
                     except Exception as e:
-                        batch_live_table.empty()
-                        batch_live_total.empty()
                         import traceback
                         err_msg = str(e) if str(e) else f"{type(e).__name__} (no message)"
                         batch_results[display] = f"Analysis failed: {err_msg}\n\n```\n{traceback.format_exc()}\n```"
-                        status_container.update(label=f"{display} — failed", state="error")
                         logger.exception("Batch analysis failed for %s", display)
 
                     batch_trackers[display] = tracker
