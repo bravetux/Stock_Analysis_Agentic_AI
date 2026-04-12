@@ -4,6 +4,7 @@
 # =============================================================================
 
 from enum import Enum
+from urllib.parse import quote
 
 
 class ExchangeEnum(str, Enum):
@@ -91,3 +92,8 @@ def get_display_ticker(ticker: str) -> str:
         if clean.upper().endswith(suffix):
             clean = clean[: -len(suffix)]
     return clean
+
+
+def url_encode_ticker(ticker: str) -> str:
+    """URL-encode a ticker for safe use in URLs. Handles special chars like & in ARE&M."""
+    return quote(get_display_ticker(ticker), safe="")

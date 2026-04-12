@@ -5,10 +5,11 @@
 
 import logging
 import time
+from urllib.parse import quote
 import httpx
 from bs4 import BeautifulSoup
 from strands import tool
-from src.config.exchanges import ExchangeEnum, get_display_ticker
+from src.config.exchanges import ExchangeEnum, get_display_ticker, url_encode_ticker
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def scrape_google_finance(ticker: str, exchange: str) -> dict:
         ExchangeEnum.NASDAQ: "NASDAQ",
     }
     gf_ex = gf_exchange_map.get(ex, ex.value)
-    url = f"https://www.google.com/finance/quote/{display}:{gf_ex}"
+    url = f"https://www.google.com/finance/quote/{url_encode_ticker(ticker)}:{gf_ex}"
 
     resp = _safe_get(url)
     if not resp:
@@ -95,7 +96,7 @@ def scrape_yahoo_finance_page(ticker: str, exchange: str) -> dict:
     # Yahoo Finance ticker format
     yf_map = {ExchangeEnum.NSE: f"{display}.NS", ExchangeEnum.BSE: f"{display}.BO"}
     yf_ticker = yf_map.get(ex, display)
-    url = f"https://finance.yahoo.com/quote/{yf_ticker}/"
+    url = f"https://finance.yahoo.com/quote/{quote(yf_ticker, safe='')}/"
 
     resp = _safe_get(url)
     if not resp:
@@ -128,7 +129,7 @@ def scrape_yahoo_finance_page(ticker: str, exchange: str) -> dict:
 def scrape_moneycontrol(ticker: str) -> dict:
     """Scrape MoneyControl for Indian stock data — fundamentals, news, and analyst views."""
     display = get_display_ticker(ticker)
-    search_url = f"https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data={display}&cid=&mbession_id=&tession_id=&search_page=&search_type="
+    search_url = f"https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data={quote(display, safe='')}&cid=&mbession_id=&tession_id=&search_page=&search_type="
 
     resp = _safe_get(search_url)
     if not resp:
@@ -168,7 +169,7 @@ def scrape_trendlyne(ticker: str) -> dict:
     """Scrape Trendlyne.com for DMA analysis, momentum score, and forecast data.
     Indian stocks only."""
     display = get_display_ticker(ticker)
-    url = f"https://trendlyne.com/equity/{display}/"
+    url = f"https://trendlyne.com/equity/{url_encode_ticker(ticker)}/"
     time.sleep(settings.scrape_delay_seconds)
 
     resp = _safe_get(url)
@@ -208,7 +209,7 @@ def scrape_tickertape(ticker: str) -> dict:
     """Scrape Tickertape.in for valuation scores, peer comparison, and checklists.
     Indian stocks only."""
     display = get_display_ticker(ticker)
-    url = f"https://www.tickertape.in/stocks/{display}"
+    url = f"https://www.tickertape.in/stocks/{url_encode_ticker(ticker)}"
     time.sleep(settings.scrape_delay_seconds)
 
     resp = _safe_get(url)

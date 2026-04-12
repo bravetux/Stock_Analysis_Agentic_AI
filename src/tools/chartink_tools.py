@@ -8,7 +8,7 @@ import time
 import httpx
 from bs4 import BeautifulSoup
 from strands import tool
-from src.config.exchanges import get_display_ticker
+from src.config.exchanges import get_display_ticker, url_encode_ticker
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ def get_chartink_stock_data(ticker: str) -> dict:
     """Get Chartink technical data page for a specific stock.
     Returns available technical indicators and chart data."""
     display = get_display_ticker(ticker)
-    url = f"https://chartink.com/stocks/{display}.html"
+    url = f"https://chartink.com/stocks/{url_encode_ticker(ticker)}.html"
 
     time.sleep(settings.scrape_delay_seconds)
     try:

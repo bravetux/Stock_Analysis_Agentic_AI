@@ -8,7 +8,7 @@ import time
 import httpx
 from bs4 import BeautifulSoup
 from strands import tool
-from src.config.exchanges import get_display_ticker
+from src.config.exchanges import get_display_ticker, url_encode_ticker
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -26,14 +26,15 @@ def scrape_screener_in(ticker: str) -> dict:
     Returns PE, market cap, book value, dividend yield, ROCE, ROE,
     sales growth, profit growth, debt-to-equity, promoter holding."""
     display = get_display_ticker(ticker)
-    url = f"https://www.screener.in/company/{display}/consolidated/"
+    encoded = url_encode_ticker(ticker)
+    url = f"https://www.screener.in/company/{encoded}/consolidated/"
 
     time.sleep(settings.scrape_delay_seconds)
     try:
         resp = httpx.get(url, headers=HEADERS, timeout=15, follow_redirects=True)
         if resp.status_code == 404:
             # Try standalone instead of consolidated
-            url = f"https://www.screener.in/company/{display}/"
+            url = f"https://www.screener.in/company/{encoded}/"
             resp = httpx.get(url, headers=HEADERS, timeout=15, follow_redirects=True)
         resp.raise_for_status()
     except Exception as e:
