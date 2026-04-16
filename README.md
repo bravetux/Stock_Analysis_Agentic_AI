@@ -1,4 +1,4 @@
-# Stock Analysis AI Agent (AG-UC-0999)
+# Stock Analysis AI Agent
 
 A multi-agent stock analysis system built with the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) that analyzes stocks across **BSE**, **NSE**, and **NASDAQ** exchanges using technical analysis, news intelligence, fundamental data, and web scraping.
 

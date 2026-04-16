@@ -4,13 +4,13 @@
 :: =============================================================================
 @echo off
 setlocal enabledelayedexpansion
-title Stock Analysis Agent — Startup
+title Stock Analysis Agent - Startup
 
 :: ── Change to project root ──────────────────────────────────
 cd /d "%~dp0"
 
 echo ============================================================
-echo   Stock Analysis Agent (AG-UC-0999) — Startup Check
+echo   Stock Analysis Agent - Startup Check
 echo ============================================================
 echo.
 
@@ -110,7 +110,7 @@ echo.
 start "" /b cmd /c "timeout /t 3 >nul && start http://localhost:8510"
 
 :: Start Streamlit
-uv run streamlit run src/ui/app.py --server.port 8510 --server.headless false
+uv run streamlit run src/ui/Home.py --server.port 8510 --server.headless false
 goto :eof
 
 :error
