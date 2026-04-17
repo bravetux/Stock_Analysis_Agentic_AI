@@ -40,22 +40,44 @@ class ReportStore:
                     profile TEXT NOT NULL,
                     report_markdown TEXT NOT NULL,
                     pdf_path TEXT,
-                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    macro_snapshot_as_of TIMESTAMP NULL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_ticker ON reports(ticker)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_analyzed_at ON reports(analyzed_at)")
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(reports)")}
+            if "macro_snapshot_as_of" not in cols:
+                conn.execute("ALTER TABLE reports ADD COLUMN macro_snapshot_as_of TIMESTAMP NULL")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def save_report(self, ticker: str, exchange: str, profile: str, report_md: str, pdf_path: str | None = None) -> int:
+    def save_report(
+        self,
+        ticker: str,
+        exchange: str,
+        profile: str,
+        report_md: str,
+        pdf_path: str | None = None,
+        macro_snapshot_as_of: datetime | None = None,
+    ) -> int:
+        as_of_str = (
+            macro_snapshot_as_of.isoformat()
+            if isinstance(macro_snapshot_as_of, datetime)
+            else None
+        )
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO reports (ticker, exchange, profile, report_markdown, pdf_path, analyzed_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (ticker.upper(), exchange.upper(), profile, report_md, pdf_path, datetime.now(timezone.utc).isoformat()),
+                "INSERT INTO reports "
+                "(ticker, exchange, profile, report_markdown, pdf_path, analyzed_at, macro_snapshot_as_of) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    ticker.upper(), exchange.upper(), profile, report_md, pdf_path,
+                    datetime.now(timezone.utc).isoformat(), as_of_str,
+                ),
             )
             return cursor.lastrowid
 

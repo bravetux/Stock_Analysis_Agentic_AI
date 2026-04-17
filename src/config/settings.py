@@ -73,6 +73,24 @@ class Settings(BaseSettings):
     reports_dir: str = Field(default="reports", alias="REPORTS_DIR")
     db_path: str = Field(default="data/reports.db", alias="DB_PATH")
 
+    # Research-agent (Claude-style investigation) settings
+    research_mode_enabled: bool = Field(default=False, alias="RESEARCH_MODE_ENABLED")
+    lead_temperature: float = Field(default=0.4, alias="LEAD_TEMPERATURE")
+    synthesizer_temperature: float = Field(default=0.2, alias="SYNTHESIZER_TEMPERATURE")
+    enable_extended_thinking: bool = Field(default=False, alias="ENABLE_EXTENDED_THINKING")
+    thinking_budget_tokens: int = Field(default=8000, alias="THINKING_BUDGET_TOKENS")
+    enable_prompt_cache: bool = Field(default=False, alias="ENABLE_PROMPT_CACHE")
+    max_followup_loops: int = Field(default=1, ge=0, le=3, alias="MAX_FOLLOWUP_LOOPS")
+    investigator_timeout_s: int = Field(default=180, alias="INVESTIGATOR_TIMEOUT_S")
+    research_max_threads: int = Field(default=6, ge=2, le=10, alias="RESEARCH_MAX_THREADS")
+
+    # Phase 2a: macro + analyst consensus
+    macro_snapshot_cache_minutes: int = Field(default=60, alias="MACRO_SNAPSHOT_CACHE_MINUTES")
+    macro_history_retention_days: int = Field(default=90, alias="MACRO_HISTORY_RETENTION_DAYS")
+    macro_fetch_timeout_seconds: int = Field(default=8, alias="MACRO_FETCH_TIMEOUT_SECONDS")
+    enable_analyst_consensus: bool = Field(default=True, alias="ENABLE_ANALYST_CONSENSUS")
+    enable_macro_context: bool = Field(default=True, alias="ENABLE_MACRO_CONTEXT")
+
 
 # Singleton
 settings = Settings()

@@ -1,0 +1,83 @@
+#    Company Name                                              NSE Symbol
+---  --------------------------------------------------------  -----------
+1    Amara Raja Energy & Mobility Limited                      ARE&M
+2    Bajaj Auto Limited                                        BAJAJ-AUTO
+3    Divi's Laboratories Limited                               DIVISLAB
+4    Dr. Reddy's Laboratories Limited                          DRREDDY
+5    Exide Industries Limited                                  EXIDEIND
+6    The Federal Bank Limited                                  FEDERALBNK
+7    HCL Technologies Limited                                  HCLTECH
+8    HDFC Bank Limited                                         HDFCBANK
+9    Hero MotoCorp Limited                                     HEROMOTOCO
+10   ICICI Bank Limited                                        ICICIBANK
+11   IDFC First Bank Limited                                   IDFCFIRSTB
+12   IndusInd Bank Limited                                     INDUSINDBK
+13   ITC Hotels Limited                                        ITCHOTELS
+14   ITC Limited                                               ITC
+15   The Karnataka Bank Limited                                KTKBANK
+16   Larsen & Toubro Limited                                   LT
+17   Manappuram Finance Limited                                MANAPPURAM
+18   Muthoot Finance Limited                                   MUTHOOTFIN
+19   Natco Pharma Limited                                      NATCOPHARM
+20   The South Indian Bank Limited                             SOUTHBANK
+21   Tamilnad Mercantile Bank Limited                          TMB
+22   Tata Consultancy Services Limited                         TCS
+23   Tata Steel Limited                                        TATASTEEL
+24   Thangamayil Jewellery Limited                             THANGAMAYL
+25   Titan Company Limited                                     TITAN
+26   UltraTech Cement Limited                                  ULTRACEMCO
+27   Yes Bank Limited                                          YESBANK
+28   Zydus Lifesciences Limited                                ZYDUSLIFE
+29   Jyothy Labs Limited                                       JYOTHYLAB
+30   Petronet LNG Limited                                      PETRONET
+31   Spandana Sphoorty Financial Limited                       SPANDANA
+32   Tata Motors Limited                                       TMCV
+33   Tata Motors Passenger Vehicles Limited                    TMPV
+34   Aditya Birla Capital Limited                              ABCAPITAL
+35   Ashok Leyland Limited                                     ASHOKLEY
+36   Axis Bank Limited                                         AXISBANK
+37   Castrol India Limited                                     CASTROLIND
+38   Cipla Limited                                             CIPLA
+39   Dabur India Limited                                       DABUR
+40   Finolex Cables Limited                                    FINCABLES
+41   HDFC Life Insurance Company Limited                       HDFCLIFE
+42   ICICI Prudential Life Insurance Company Limited           ICICIPRULI
+43   IndiGrid Infrastructure Trust                             INDIGRID
+44   Infosys Limited                                           INFY
+45   KEC International Limited                                 KEC
+46   Mahindra Holidays & Resorts India Limited                 MHRIL
+47   Sagility Limited                                          SAGILITY
+48   Tata Capital Limited                                      TATACAP
+49   Tata Chemicals Limited                                    TATACHEM
+50   Tata Consumer Products Limited                            TATACONSUM
+51   Tech Mahindra Limited                                     TECHM
+52   Wipro                                                     WIPRO
+53   Aurobindo Pharma Limited                                  AUROPHARMA
+54   Bharat Forge Limited                                      BHARATFORG
+55   BSE Limited                                               BSE
+56   Cholamandalam Investment and Finance Company Limited      CHOLAFIN
+57   Coforge Limited                                           COFORGE
+58   Delhivery Limited                                         DELHIVERY
+59   Edelweiss Financial Services Limited                      EDELWEISS
+60   EPACK Durable Limited                                     EPACK
+61   GE Vernova T&D India Limited                              GVT&D
+62   Gland Pharma Limited                                      GLAND
+63   Housing & Urban Development Corporation Limited           HUDCO
+64   IIFL Finance Limited                                      IIFL
+65   Max Healthcare Institute Limited                          MAXHEALTH
+66   Metro Brands Limited                                      METROBRAND
+67   Minda Corporation Limited                                 MINDACORP
+68   Motilal Oswal Financial Services Limited                  MOTILALOFS
+69   NBCC (India) Limited                                      NBCC
+70   Neuland Laboratories Limited                              NEULANDLAB
+71   PB Fintech Limited                                        POLICYBZR
+72   Persistent Systems Limited                                PERSISTENT
+73   PNB Housing Finance Limited                               PNBHOUSING
+74   Shriram Finance Limited                                   SHRIRAMFIN
+75   Star Health and Allied Insurance Company Limited          STARHEALTH
+76   Stylam Industries Limited                                 STYLAMIND
+77   Swiggy Limited                                            SWIGGY
+78   TD Power Systems Limited                                  TDPOWERSYS
+79   The Supreme Industries Limited                            SUPREMEIND
+80   Timken India Limited                                      TIMKEN
+81   Vikran Engineering Limited                                VIKRAN

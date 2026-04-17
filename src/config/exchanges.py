@@ -72,12 +72,26 @@ def strip_prefix(ticker: str) -> str:
 
 
 def normalize_ticker(ticker: str, exchange: ExchangeEnum) -> str:
-    """Convert ticker to yfinance-compatible format."""
+    """Convert ticker to yfinance-compatible format.
+
+    Runs ``resolve_symbol`` first so free-form inputs like ``"natco"``,
+    ``"infosys"`` or ``"Natco Pharma Limited"`` map to the canonical NSE
+    symbol (``NATCOPHARM``, ``INFY``) instead of being shipped to yfinance
+    as a bogus ``NATCO.NS`` that 404s.
+    """
     clean = strip_prefix(ticker).strip()
     # Remove existing suffixes
     for suffix in (".NS", ".BO"):
         if clean.upper().endswith(suffix):
             clean = clean[: -len(suffix)]
+
+    # Resolve free-form names to canonical symbols (alias/catalog/yf.Search).
+    # Never raises; falls back to `clean` if no match is found.
+    from src.config.symbol_resolver import resolve_symbol
+    try:
+        clean = resolve_symbol(clean, exchange.value)
+    except Exception:
+        pass
 
     if exchange == ExchangeEnum.NSE:
         return f"{clean}.NS"

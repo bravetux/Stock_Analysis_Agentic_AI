@@ -1,0 +1,16 @@
+.env
+.sessions/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.db
+.claude/
+CLAUDE.md
+docs/superpowers/
+/reports/
+.gitignore.bak
